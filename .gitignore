@@ -1,0 +1,15 @@
+# build output
+target/
+
+# leftover local H2 database from before the move to PostgreSQL
+data/
+
+*.log
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project

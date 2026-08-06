@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>JobTrail — outreach & follow-ups</title>
+    <link rel="stylesheet" href="app.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='24' fill='%237c6cf5'/><path d='M26 40l24 16 24-16' stroke='white' stroke-width='8' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-grid" viewBox="0 0 24 24">
+            <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+            <rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>
+        </symbol>
+        <symbol id="i-users" viewBox="0 0 24 24">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </symbol>
+        <symbol id="i-clock" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+        </symbol>
+        <symbol id="i-file" viewBox="0 0 24 24">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+        </symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="23"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/>
+            <line x1="18.4" y1="18.4" x2="19.8" y2="19.8"/><line x1="1" y1="12" x2="3" y2="12"/>
+            <line x1="21" y1="12" x2="23" y2="12"/><line x1="4.2" y1="19.8" x2="5.6" y2="18.4"/>
+            <line x1="18.4" y1="5.6" x2="19.8" y2="4.2"/>
+        </symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </symbol>
+        <symbol id="i-search" viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </symbol>
+        <symbol id="i-pause" viewBox="0 0 24 24">
+            <rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>
+        </symbol>
+        <symbol id="i-play" viewBox="0 0 24 24"><polygon points="6 3 20 12 6 21 6 3"/></symbol>
+        <symbol id="i-trash" viewBox="0 0 24 24">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </symbol>
+        <symbol id="i-refresh" viewBox="0 0 24 24">
+            <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </symbol>
+        <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </symbol>
+        <symbol id="i-mail" viewBox="0 0 24 24">
+            <rect x="2" y="4" width="20" height="16" rx="2"/><polyline points="22,6 12,13 2,6"/>
+        </symbol>
+        <symbol id="i-reply" viewBox="0 0 24 24">
+            <polyline points="9 17 4 12 9 7"/><path d="M20 18v-2a4 4 0 0 0-4-4H4"/>
+        </symbol>
+        <symbol id="i-zap" viewBox="0 0 24 24">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+        </symbol>
+        <symbol id="i-send" viewBox="0 0 24 24">
+            <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </symbol>
+        <symbol id="i-inbox" viewBox="0 0 24 24">
+            <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
+            <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
+        </symbol>
+    </defs>
+</svg>
+
+<div class="app">
+    <aside class="sidebar">
+        <div class="brand">
+            <div class="brand-mark"><svg><use href="#i-send"/></svg></div>
+            <div class="brand-text">
+                <strong>JobTrail</strong>
+                <span>outreach &amp; follow-ups</span>
+            </div>
+        </div>
+
+        <nav class="nav">
+            <a class="nav-item" href="#dashboard" data-view="dashboard">
+                <svg><use href="#i-grid"/></svg><span>Dashboard</span>
+            </a>
+            <a class="nav-item" href="#outreach" data-view="outreach">
+                <svg><use href="#i-users"/></svg><span>Outreach</span>
+                <em class="nav-badge" id="nav-outreach-count" hidden></em>
+            </a>
+            <a class="nav-item" href="#queue" data-view="queue">
+                <svg><use href="#i-clock"/></svg><span>Queue</span>
+                <em class="nav-badge accent" id="nav-queue-count" hidden></em>
+            </a>
+            <a class="nav-item" href="#templates" data-view="templates">
+                <svg><use href="#i-file"/></svg><span>Templates</span>
+            </a>
+            <a class="nav-item" href="#settings" data-view="settings">
+                <svg><use href="#i-settings"/></svg><span>Settings</span>
+            </a>
+        </nav>
+
+        <div class="pace-card" id="pace-card">
+            <div class="pace-head">
+                <svg class="pace-icon"><use href="#i-zap"/></svg>
+                <span>Next send</span>
+            </div>
+            <div class="pace-count" id="pace-count">—</div>
+            <div class="pace-dots" id="pace-dots"></div>
+            <div class="pace-state" id="pace-state">Starting up…</div>
+        </div>
+
+        <div class="sidebar-foot">
+            <button class="icon-btn" id="theme-toggle" type="button" title="Switch theme">
+                <svg class="only-dark"><use href="#i-sun"/></svg>
+                <svg class="only-light"><use href="#i-moon"/></svg>
+            </button>
+            <span class="version">v1.0</span>
+        </div>
+    </aside>
+
+    <main class="main">
+        <header class="topbar">
+            <div>
+                <h1 id="page-title">Dashboard</h1>
+                <p id="page-sub">Everything you have sent, and everything still to send.</p>
+            </div>
+            <div class="topbar-actions" id="topbar-actions"></div>
+        </header>
+
+        <!-- ============================ DASHBOARD ============================ -->
+        <section class="view" id="view-dashboard">
+            <div id="dash-empty" class="empty-hero" hidden>
+                <div class="empty-glow"></div>
+                <svg class="empty-icon"><use href="#i-inbox"/></svg>
+                <h2>Nothing here yet</h2>
+                <p>Add the people you want to reach, or drop in a set of sample threads
+                    to see how the dashboard looks once it is running.</p>
+                <div class="empty-actions">
+                    <button class="btn primary" data-action="add-recipients">
+                        <svg><use href="#i-plus"/></svg> Add recipients
+                    </button>
+                    <button class="btn ghost" data-action="load-demo">Load demo data</button>
+                </div>
+            </div>
+
+            <div id="dash-body" hidden>
+                <div class="tiles" id="dash-tiles"></div>
+
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3>Emails sent</h3>
+                                <p class="card-sub">Last 14 days</p>
+                            </div>
+                            <div class="chart-total" id="chart-total"></div>
+                        </div>
+                        <div id="chart-sends" class="chart-slot"></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3>Pipeline</h3>
+                                <p class="card-sub">Where every thread stands</p>
+                            </div>
+                        </div>
+                        <div id="chart-pipeline" class="chart-slot"></div>
+                        <div id="pipeline-legend" class="legend"></div>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3>Follow-ups coming up</h3>
+                                <p class="card-sub">Queued automatically when they fall due</p>
+                            </div>
+                        </div>
+                        <div id="upcoming-list" class="list"></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3>Recent activity</h3>
+                                <p class="card-sub">The last emails to move</p>
+                            </div>
+                        </div>
+                        <div id="activity-list" class="list"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================ OUTREACH ============================= -->
+        <section class="view" id="view-outreach" hidden>
+            <div class="toolbar">
+                <label class="search">
+                    <svg><use href="#i-search"/></svg>
+                    <input type="search" id="outreach-search" placeholder="Search name, company or role…">
+                </label>
+                <select id="outreach-filter" class="select">
+                    <option value="">All statuses</option>
+                    <option value="DRAFT">Draft</option>
+                    <option value="QUEUED">Queued</option>
+                    <option value="SENT">Sent</option>
+                    <option value="OPENED">Opened</option>
+                    <option value="REPLIED">Replied</option>
+                    <option value="CLOSED">Closed</option>
+                    <option value="FAILED">Failed</option>
+                </select>
+                <button class="btn primary" data-action="add-recipients">
+                    <svg><use href="#i-plus"/></svg> Add recipients
+                </button>
+            </div>
+            <div class="card flush">
+                <div class="table-wrap">
+                    <table class="table" id="outreach-table">
+                        <thead>
+                        <tr>
+                            <th>Recipient</th>
+                            <th>Company &amp; role</th>
+                            <th>Status</th>
+                            <th class="num">Follow-ups</th>
+                            <th>Last sent</th>
+                            <th>Next follow-up</th>
+                            <th class="actions-col"></th>
+                        </tr>
+                        </thead>
+                        <tbody id="outreach-rows"></tbody>
+                    </table>
+                </div>
+                <div id="outreach-empty" class="empty-inline" hidden>No threads match that filter.</div>
+            </div>
+        </section>
+
+        <!-- ============================== QUEUE ============================== -->
+        <section class="view" id="view-queue" hidden>
+            <div class="pace-panel card" id="pace-panel"></div>
+
+            <div class="card flush">
+                <div class="card-head padded">
+                    <div>
+                        <h3>Waiting to go out</h3>
+                        <p class="card-sub">Sent one at a time, never closer together than the interval below</p>
+                    </div>
+                </div>
+                <div class="table-wrap">
+                    <table class="table" id="queue-table">
+                        <thead>
+                        <tr>
+                            <th class="num">#</th>
+                            <th>Recipient</th>
+                            <th>Subject</th>
+                            <th>Type</th>
+                            <th>Goes out</th>
+                            <th class="actions-col"></th>
+                        </tr>
+                        </thead>
+                        <tbody id="queue-rows"></tbody>
+                    </table>
+                </div>
+                <div id="queue-empty" class="empty-inline" hidden>
+                    The queue is empty. Queue a thread from the Outreach tab and it will appear here.
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================ TEMPLATES ============================ -->
+        <section class="view" id="view-templates" hidden>
+            <div class="templates-layout">
+                <div class="card flush template-list">
+                    <div class="card-head padded">
+                        <div><h3>Templates</h3></div>
+                        <button class="icon-btn" data-action="new-template" title="New template">
+                            <svg><use href="#i-plus"/></svg>
+                        </button>
+                    </div>
+                    <div id="template-items"></div>
+                </div>
+
+                <div class="card template-editor" id="template-editor"></div>
+            </div>
+        </section>
+
+        <!-- ============================ SETTINGS ============================= -->
+        <section class="view" id="view-settings" hidden>
+            <form id="settings-form" autocomplete="off">
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3>Who the email comes from</h3>
+                            <p class="card-sub">Shown in the recipient's inbox</p>
+                        </div>
+                    </div>
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>Your name</span>
+                            <input name="fromName" type="text" placeholder="Alex Mercer">
+                        </label>
+                        <label class="field">
+                            <span>From address</span>
+                            <input name="fromEmail" type="email" placeholder="you@gmail.com">
+                        </label>
+                        <label class="field">
+                            <span>Reply-to <em>optional</em></span>
+                            <input name="replyTo" type="email" placeholder="Leave blank to use the from address">
+                        </label>
+                        <label class="field span-2">
+                            <span>Signature <em>HTML allowed · {{my_name}} works here</em></span>
+                            <textarea name="signatureHtml" rows="3"
+                                      placeholder="Alex Mercer &middot; +44 7700 900000 &middot; portfolio.example"></textarea>
+                        </label>
+                        <label class="field span-2">
+                            <span>Attachment <em>full path to a file &middot; attached to every email &middot; leave blank for none</em></span>
+                            <input name="attachmentPath" type="text"
+                                   placeholder="C:\Users\you\Documents\Resume.pdf">
+                        </label>
+                        <label class="field span-2">
+                            <span>Attachment shown as <em>optional &middot; blank uses the real filename</em>
+                                <b id="attachment-state"></b></span>
+                            <input name="attachmentName" type="text"
+                                   placeholder="Ranjeet_Yadav_Resume.pdf">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3>SMTP connection</h3>
+                            <p class="card-sub">Gmail needs an app password, not your normal one</p>
+                        </div>
+                        <span class="pill" id="smtp-state"></span>
+                    </div>
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>Host</span>
+                            <input name="smtpHost" type="text" placeholder="smtp.gmail.com">
+                        </label>
+                        <label class="field">
+                            <span>Port</span>
+                            <input name="smtpPort" type="number" min="1" max="65535">
+                        </label>
+                        <label class="field">
+                            <span>Username</span>
+                            <input name="smtpUsername" type="text" placeholder="you@gmail.com">
+                        </label>
+                        <label class="field">
+                            <span>Password <em id="smtp-pass-hint"></em></span>
+                            <input name="smtpPassword" type="password" placeholder="••••••••••••">
+                        </label>
+                        <div class="field span-2 switch-row">
+                            <label class="switch">
+                                <input type="checkbox" name="smtpAuth"><span class="track"></span>
+                                <span class="switch-label">Use authentication</span>
+                            </label>
+                            <label class="switch">
+                                <input type="checkbox" name="smtpStartTls"><span class="track"></span>
+                                <span class="switch-label">STARTTLS (port 587)</span>
+                            </label>
+                            <label class="switch">
+                                <input type="checkbox" name="smtpSsl"><span class="track"></span>
+                                <span class="switch-label">Implicit SSL (port 465)</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="card-foot">
+                        <button class="btn ghost" type="button" data-action="test-smtp">Test connection</button>
+                        <div class="inline-send">
+                            <input type="email" id="test-email-to" placeholder="Send a test email to…">
+                            <button class="btn ghost" type="button" data-action="test-email">Send test</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card accent-card">
+                    <div class="card-head">
+                        <div>
+                            <h3>Sending pace</h3>
+                            <p class="card-sub">What keeps a batch from looking like a blast</p>
+                        </div>
+                    </div>
+                    <div class="form-grid">
+                        <label class="field">
+                            <span>Minimum gap between sends <em id="interval-floor-hint"></em></span>
+                            <div class="range-row">
+                                <input name="minIntervalSeconds" type="range" min="5" max="120" step="1">
+                                <output id="interval-out"></output>
+                            </div>
+                        </label>
+                        <label class="field">
+                            <span>Random extra delay <em>makes the rhythm look human</em></span>
+                            <div class="range-row">
+                                <input name="jitterSeconds" type="range" min="0" max="60" step="1">
+                                <output id="jitter-out"></output>
+                            </div>
+                        </label>
+                        <label class="field">
+                            <span>Daily limit</span>
+                            <input name="dailySendLimit" type="number" min="1" max="5000">
+                        </label>
+                        <label class="field">
+                            <span>Attempts before giving up</span>
+                            <input name="maxAttempts" type="number" min="1" max="10">
+                        </label>
+                        <div class="field span-2 switch-row">
+                            <label class="switch">
+                                <input type="checkbox" name="sendWindowEnabled"><span class="track"></span>
+                                <span class="switch-label">Only send between set hours</span>
+                            </label>
+                            <label class="inline-field">
+                                <span>from</span>
+                                <input name="sendWindowStartHour" type="number" min="0" max="23">
+                            </label>
+                            <label class="inline-field">
+                                <span>to</span>
+                                <input name="sendWindowEndHour" type="number" min="1" max="24">
+                            </label>
+                        </div>
+                    </div>
+                    <p class="note" id="pace-explainer"></p>
+                </div>
+
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3>Tracking &amp; follow-up defaults</h3>
+                            <p class="card-sub">Applied to every new thread</p>
+                        </div>
+                    </div>
+                    <div class="form-grid">
+                        <div class="field span-2 switch-row">
+                            <label class="switch">
+                                <input type="checkbox" name="trackOpens"><span class="track"></span>
+                                <span class="switch-label">Track opens with an invisible pixel</span>
+                            </label>
+                        </div>
+                        <label class="field">
+                            <span>Days of silence before a follow-up</span>
+                            <input name="defaultFollowUpIntervalDays" type="number" min="1" max="90">
+                        </label>
+                        <label class="field">
+                            <span>Maximum follow-ups per thread</span>
+                            <input name="defaultMaxFollowUps" type="number" min="0" max="10">
+                        </label>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3>Reply detection <em class="tag">optional</em></h3>
+                            <p class="card-sub">Reads your inbox over IMAP and stops following up once someone answers</p>
+                        </div>
+                    </div>
+                    <div class="form-grid">
+                        <div class="field span-2 switch-row">
+                            <label class="switch">
+                                <input type="checkbox" name="imapEnabled"><span class="track"></span>
+                                <span class="switch-label">Watch my inbox for replies</span>
+                            </label>
+                        </div>
+                        <label class="field">
+                            <span>IMAP host</span>
+                            <input name="imapHost" type="text" placeholder="imap.gmail.com">
+                        </label>
+                        <label class="field">
+                            <span>Port</span>
+                            <input name="imapPort" type="number" min="1" max="65535">
+                        </label>
+                        <label class="field">
+                            <span>Username</span>
+                            <input name="imapUsername" type="text">
+                        </label>
+                        <label class="field">
+                            <span>Password <em id="imap-pass-hint"></em></span>
+                            <input name="imapPassword" type="password" placeholder="••••••••••••">
+                        </label>
+                        <label class="field">
+                            <span>Folder</span>
+                            <input name="imapFolder" type="text" placeholder="INBOX">
+                        </label>
+                        <label class="field">
+                            <span>Check every (minutes)</span>
+                            <input name="imapPollMinutes" type="number" min="1" max="1440">
+                        </label>
+                    </div>
+                    <div class="card-foot">
+                        <button class="btn ghost" type="button" data-action="test-imap">Test inbox connection</button>
+                    </div>
+                </div>
+
+                <div class="sticky-save">
+                    <span id="settings-dirty" class="dirty-hint"></span>
+                    <button class="btn primary" type="submit">Save settings</button>
+                </div>
+            </form>
+        </section>
+    </main>
+</div>
+
+<div class="drawer-scrim" id="drawer-scrim" hidden></div>
+<aside class="drawer" id="drawer" hidden></aside>
+
+<div class="modal-scrim" id="modal-scrim" hidden></div>
+<div class="modal" id="modal" hidden></div>
+
+<div class="toasts" id="toasts"></div>
+<div class="tooltip" id="tooltip" hidden></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: JobTrail
+
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:jobtrail}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:ranjeet}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: false
+
+  # Each scheduled job gets its own thread, so a slow IMAP poll can never delay
+  # the dispatcher (and therefore never disturb the send pacing).
+  task:
+    scheduling:
+      pool:
+        size: 4
+
+  # These are only the *fallback* SMTP values. The running configuration lives in
+  # the settings table and is editable from the UI (Settings tab), which rebuilds
+  # the JavaMailSender at runtime. Environment variables win on first boot.
+  mail:
+    host: ${SMTP_HOST:smtp.gmail.com}
+    port: ${SMTP_PORT:587}
+    username: ${SMTP_USERNAME:yadavranjeet060@gmail.com}
+    password: ${SMTP_PASSWORD:psrw bthi oymz xflf}
+
+server:
+  port: ${PORT:8080}
+  error:
+    include-message: always
+
+jobtrail:
+  # Hard floor for the gap between two real sends. The UI cannot go below this.
+  min-interval-floor-seconds: 5
+  # How often the dispatcher wakes up to look at the queue.
+  dispatcher-poll-ms: 1000
+  # Base URL used to build open-tracking pixel links.
+  public-base-url: ${PUBLIC_BASE_URL:http://localhost:8080}
+
+logging:
+  level:
+    root: INFO
+    com.jobtrail: INFO
+    org.hibernate.SQL: WARN

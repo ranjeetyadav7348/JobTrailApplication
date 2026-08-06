@@ -1,0 +1,9 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="com.jobtrail.JobTrailApplication" />
+    <module name="jobtrail" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
