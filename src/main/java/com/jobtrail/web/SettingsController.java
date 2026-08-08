@@ -2,6 +2,7 @@ package com.jobtrail.web;
 
 import com.jobtrail.service.DiagnosticsService;
 import com.jobtrail.service.SettingsService;
+import com.jobtrail.service.scan.AiMailClassifier;
 import com.jobtrail.web.dto.SettingsForm;
 import com.jobtrail.web.dto.Views;
 import lombok.RequiredArgsConstructor;
@@ -19,18 +20,21 @@ public class SettingsController {
 
     private final SettingsService settingsService;
     private final DiagnosticsService diagnostics;
+    private final AiMailClassifier aiClassifier;
 
     public record TestEmailRequest(String to) {
     }
 
     @GetMapping
     public Views.SettingsView get() {
-        return Views.of(settingsService.get(), settingsService.intervalFloorSeconds());
+        return Views.of(settingsService.get(), settingsService.intervalFloorSeconds(),
+                aiClassifier.available());
     }
 
     @PutMapping
     public Views.SettingsView update(@RequestBody SettingsForm form) {
-        return Views.of(settingsService.update(form), settingsService.intervalFloorSeconds());
+        return Views.of(settingsService.update(form), settingsService.intervalFloorSeconds(),
+                aiClassifier.available());
     }
 
     @PostMapping("/test-smtp")

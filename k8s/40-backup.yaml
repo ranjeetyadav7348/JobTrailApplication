@@ -1,0 +1,63 @@
+# Nightly logical backup to S3.
+#
+# This is the answer to the one real weakness of in-cluster storage: the data
+# lives on the node's EBS volume, so it survives pod restarts and reboots but
+# not the instance being terminated and replaced. Job applications and their
+# email history are expensive to lose — re-scanning a mailbox only recovers what
+# is still in the mailbox, and nothing recovers the notes and statuses.
+#
+# Requires two extra keys in the jobtrail-secrets Secret: AWS_ACCESS_KEY_ID and
+# AWS_SECRET_ACCESS_KEY for a user scoped to just this bucket, plus BACKUP_S3_URI
+# in the ConfigMap. Delete this file if you would rather not run it — nothing
+# else depends on it.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup
+  namespace: jobtrail
+spec:
+  schedule: "0 19 * * *" # 00:30 IST, in UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      # Don't retry a failing backup all night; surface it instead.
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: backup
+              image: postgres:16-alpine
+              command:
+                - sh
+                - -c
+                - |
+                  set -euo pipefail
+                  apk add --no-cache aws-cli >/dev/null
+                  STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+                  FILE="/tmp/jobtrail-${STAMP}.sql.gz"
+                  # -Fc would be smaller, but plain SQL means a restore never
+                  # depends on a matching pg_restore version being to hand.
+                  pg_dump -h "$DB_HOST" -U "$DB_USERNAME" -d "$DB_NAME" | gzip > "$FILE"
+                  test -s "$FILE"
+                  aws s3 cp "$FILE" "${BACKUP_S3_URI%/}/jobtrail-${STAMP}.sql.gz"
+                  echo "uploaded jobtrail-${STAMP}.sql.gz"
+              env:
+                - name: PGPASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: jobtrail-secrets
+                      key: DB_PASSWORD
+              envFrom:
+                - configMapRef:
+                    name: jobtrail-config
+                - secretRef:
+                    name: jobtrail-secrets
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 128Mi
+                limits:
+                  memory: 256Mi

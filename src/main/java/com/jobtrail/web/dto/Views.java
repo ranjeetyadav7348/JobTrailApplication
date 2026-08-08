@@ -95,6 +95,8 @@ public final class Views {
             String attachmentPath,
             String attachmentName,
             boolean attachmentReady,
+            String resumePath,
+            boolean resumeReady,
             String smtpHost,
             int smtpPort,
             String smtpUsername,
@@ -119,9 +121,19 @@ public final class Views {
             boolean imapPasswordSet,
             String imapFolder,
             int imapPollMinutes,
+            boolean scanEnabled,
+            int scanDays,
+            String scanFolders,
+            boolean alertPopups,
+            int ghostAfterDays,
+            Instant lastScanAt,
+            boolean aiEnabled,
+            boolean aiModelAvailable,
+            int aiMaxCallsPerScan,
             int defaultFollowUpIntervalDays,
             int defaultMaxFollowUps,
-            boolean smtpConfigured) {
+            boolean smtpConfigured,
+            boolean imapConfigured) {
     }
 
     public record DayCount(String date, long sent) {
@@ -179,10 +191,17 @@ public final class Views {
                 t.getBodyHtml(), t.isDefault(), t.getCreatedAt(), t.getUpdatedAt());
     }
 
-    public static SettingsView of(AppSettings s, int floorSeconds) {
+    /**
+     * @param aiModelAvailable whether a Spring AI chat model is actually wired
+     *                         up. It comes from the bean graph rather than the
+     *                         settings row, because the provider and its
+     *                         credentials are configuration, not user data.
+     */
+    public static SettingsView of(AppSettings s, int floorSeconds, boolean aiModelAvailable) {
         return new SettingsView(
                 s.getFromName(), s.getFromEmail(), s.getReplyTo(), s.getSignatureHtml(),
                 s.getAttachmentPath(), s.getAttachmentName(), s.attachmentReady(),
+                s.getResumePath(), s.resumeReady(),
                 s.getSmtpHost(), s.getSmtpPort(), s.getSmtpUsername(),
                 s.getSmtpPassword() != null && !s.getSmtpPassword().isBlank(),
                 s.isSmtpStartTls(), s.isSmtpSsl(), s.isSmtpAuth(),
@@ -192,7 +211,10 @@ public final class Views {
                 s.isImapEnabled(), s.getImapHost(), s.getImapPort(), s.getImapUsername(),
                 s.getImapPassword() != null && !s.getImapPassword().isBlank(),
                 s.getImapFolder(), s.getImapPollMinutes(),
+                s.isScanEnabled(), s.getScanDays(), s.getScanFolders(),
+                s.isAlertPopups(), s.getGhostAfterDays(), s.getLastScanAt(),
+                s.isAiEnabled(), aiModelAvailable, s.getAiMaxCallsPerScan(),
                 s.getDefaultFollowUpIntervalDays(), s.getDefaultMaxFollowUps(),
-                s.smtpConfigured());
+                s.smtpConfigured(), s.imapConfigured());
     }
 }

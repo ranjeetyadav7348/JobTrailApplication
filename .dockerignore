@@ -1,0 +1,36 @@
+# Build context hygiene. Everything excluded here either bloats the context,
+# slows the build, or must never end up in a published image.
+
+# Local credential overrides. This one is the important line: config/ holds the
+# real SMTP and database passwords, and Spring Boot reads ./config/ ahead of the
+# packaged configuration — so copying it in would both leak the secrets and
+# silently override whatever Kubernetes injects.
+config/
+.env
+
+# Build output. The image builds from source in its own stage; a host-built
+# target/ is stale at best, and wrong architecture at worst.
+target/
+
+# Downloaded embedding model — the image fetches its own copy in a build stage.
+.ai-model-cache/
+
+# Leftover local H2 database
+data/
+
+# VCS and tooling
+.git/
+.github/
+.gitignore
+.idea/
+.vscode/
+.run/
+*.iml
+
+# Docs and infra that no build stage reads
+README.md
+DEPLOY.md
+k8s/
+setup-postgres.sql
+Dockerfile
+.dockerignore

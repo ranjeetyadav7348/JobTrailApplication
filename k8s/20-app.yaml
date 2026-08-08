@@ -1,0 +1,156 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jobtrail-config
+  namespace: jobtrail
+data:
+  DB_HOST: "postgres.jobtrail.svc.cluster.local"
+  DB_PORT: "5432"
+  DB_NAME: "jobtrail"
+  TZ: "Asia/Kolkata"
+  # Used to build the open-tracking pixel URLs, so it has to be the address a
+  # recipient's mail client can actually reach — not the cluster-internal one.
+  PUBLIC_BASE_URL: "http://jobtrail.local"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: jobtrail
+  namespace: jobtrail
+spec:
+  selector:
+    app: jobtrail
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jobtrail
+  namespace: jobtrail
+  labels:
+    app: jobtrail
+spec:
+  # ─────────────────────────────────────────────────────────────────────────
+  # replicas MUST stay at 1, and the strategy MUST stay Recreate.
+  #
+  # This app is not stateless. It runs scheduled jobs in-process: the send
+  # dispatcher, the IMAP poller and the follow-up scheduler. Two instances
+  # would each poll the same queue and the same mailbox, so a queued email
+  # gets picked up twice and the recipient receives duplicates — from a tool
+  # whose entire purpose is not annoying employers.
+  #
+  # RollingUpdate has the same failure in miniature: it starts the new pod
+  # before terminating the old one, so for a few seconds two dispatchers are
+  # live. Recreate takes the old one down first. Slightly more downtime per
+  # deploy, no double sends. Making this safely horizontal means moving the
+  # schedulers behind a database lock (e.g. ShedLock) first.
+  # ─────────────────────────────────────────────────────────────────────────
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: jobtrail
+  template:
+    metadata:
+      labels:
+        app: jobtrail
+    spec:
+      # The image is rebuilt per commit, but the tag may be reused; always pull
+      # so a redeploy cannot silently serve a cached older layer set.
+      imagePullSecrets:
+        - name: ghcr-pull
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      # Postgres is a StatefulSet that may still be initialising on a cold
+      # cluster. The app retries its own connection, but waiting here keeps the
+      # startup logs readable and avoids a crash-loop backoff on first boot.
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h "$DB_HOST" -p 5432 -U "$DB_USERNAME"; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+          env:
+            - name: DB_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: jobtrail-config
+                  key: DB_HOST
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: jobtrail-secrets
+                  key: DB_USERNAME
+      containers:
+        - name: jobtrail
+          image: ghcr.io/OWNER/REPO:latest # replaced by CI at deploy time
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: jobtrail-config
+            - secretRef:
+                name: jobtrail-secrets
+          volumeMounts:
+            - name: resume
+              mountPath: /app/resume
+              readOnly: true
+            - name: cache
+              mountPath: /app/cache
+          # Startup probe first: loading the embedding model and running
+          # Hibernate's schema update takes appreciably longer than a steady
+          # -state restart. Without it, a liveness probe tuned for steady state
+          # would kill the pod mid-startup, forever.
+          startupProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60 # up to 5 minutes to become ready
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          # Liveness checks only that the JVM is alive and serving, NOT that the
+          # database is reachable. If Postgres blips, readiness should drop and
+          # traffic should stop — restarting the app would not fix it and would
+          # interrupt any send in flight.
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 250m
+              memory: 768Mi
+            limits:
+              # The ONNX embedding model and its native libraries live outside
+              # the Java heap, so this ceiling has to cover heap + native. The
+              # image caps the heap at 70% of the container to leave room.
+              memory: 1536Mi
+      volumes:
+        - name: resume
+          secret:
+            secretName: jobtrail-resume
+        - name: cache
+          emptyDir: {}
+      terminationGracePeriodSeconds: 40

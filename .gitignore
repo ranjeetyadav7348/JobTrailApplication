@@ -4,6 +4,15 @@ target/
 # leftover local H2 database from before the move to PostgreSQL
 data/
 
+# Local ONNX embedding model, downloaded on first use (~90MB)
+.ai-model-cache/
+
+# Local credential overrides. Spring Boot reads ./config/ automatically and it
+# overrides the packaged application.yml, so real secrets live here and are
+# never committed or built into an image.
+config/
+.env
+
 *.log
 
 # IDEs

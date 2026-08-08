@@ -887,6 +887,129 @@ input[type="range"]::-moz-range-thumb {
 .tooltip b { font-variant-numeric: tabular-nums; }
 .tooltip .tt-sub { color: var(--muted); font-size: 11px; }
 
+/* ========================= application tracker ========================== */
+
+/* Statuses reuse the validated palette above rather than adding hues. */
+.pill.s-APPLIED      .dot { background: var(--s-sent); }
+.pill.s-ACKNOWLEDGED .dot { background: var(--s-queued); }
+.pill.s-ASSESSMENT   .dot { background: var(--s-opened); }
+.pill.s-INTERVIEW    .dot { background: var(--accent); }
+.pill.s-OFFER        .dot { background: var(--s-replied); }
+.pill.s-REJECTED     .dot { background: var(--s-failed); }
+.pill.s-WITHDRAWN    .dot { background: var(--s-closed); }
+.pill.s-GHOSTED      .dot { background: var(--s-draft); }
+
+.nav-badge.alert { background: var(--s-failed); color: #fff; }
+
+/* The funnel is a bar list, not a chart: the labels are the point, and
+   horizontal bars keep long stage names readable at any width. */
+.funnel { display: flex; flex-direction: column; gap: 12px; }
+.funnel-row { display: grid; grid-template-columns: 108px 1fr auto; align-items: center; gap: 12px; }
+.funnel-label { font-size: 13px; color: var(--text-2); }
+.funnel-track { height: 26px; border-radius: 7px; background: var(--surface-3); overflow: hidden; }
+.funnel-fill {
+    height: 100%;
+    border-radius: 7px;
+    min-width: 2px;
+    transition: width .35s ease;
+}
+.funnel-value { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--text-1); font-weight: 600; }
+.funnel-value em { font-style: normal; color: var(--muted); font-weight: 500; margin-left: 6px; }
+
+.platform-dot { width: 9px; height: 9px; border-radius: 3px; display: inline-block; margin-right: 8px; flex: none; }
+.cell-strong { display: flex; align-items: center; }
+
+.due-soon { color: var(--s-failed); font-weight: 600; }
+
+/* Alert popup — deliberately not a modal: it must be dismissable without
+   blocking whatever you were doing, and several can stack. */
+.alert-pop {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: min(420px, calc(100vw - 36px));
+}
+.alert-card {
+    border: 1px solid var(--border-strong);
+    border-left: 3px solid var(--s-failed);
+    border-radius: 12px;
+    background: var(--surface-2);
+    box-shadow: var(--shadow);
+    padding: 14px 14px 12px;
+    animation: alert-in .22s ease-out;
+}
+.alert-card.warn { border-left-color: var(--s-queued); }
+.alert-card .alert-kind {
+    display: flex; align-items: center; gap: 7px;
+    font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 6px;
+}
+.alert-card .alert-kind svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 2; }
+.alert-card h4 { margin: 0 0 4px; font-size: 14.5px; line-height: 1.35; }
+.alert-card p { margin: 0 0 10px; font-size: 12.5px; color: var(--text-2); line-height: 1.45; }
+.alert-card .alert-actions { display: flex; gap: 8px; align-items: center; }
+.alert-card .alert-deadline { margin-left: auto; font-size: 11.5px; color: var(--s-failed); }
+
+@keyframes alert-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: none; }
+}
+
+.scan-summary { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-2); }
+.scan-summary b { color: var(--text-1); font-variant-numeric: tabular-nums; }
+
+/* ================================ chat ================================= */
+
+.chat-card { display: flex; flex-direction: column; gap: 14px; }
+
+.chat-log {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 220px;
+    max-height: 52vh;
+    overflow-y: auto;
+    padding-right: 4px;
+}
+.chat-turn { display: flex; gap: 10px; align-items: flex-start; }
+.chat-turn.user { flex-direction: row-reverse; }
+.chat-bubble {
+    max-width: 78%;
+    padding: 10px 13px;
+    border-radius: 12px;
+    font-size: 13.5px;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    border: 1px solid var(--border);
+    background: var(--surface-2);
+}
+.chat-turn.user .chat-bubble {
+    background: var(--accent-soft);
+    border-color: var(--accent-line);
+}
+.chat-turn.pending .chat-bubble { color: var(--muted); font-style: italic; }
+.chat-avatar {
+    width: 28px; height: 28px; border-radius: 8px; flex: none;
+    display: grid; place-items: center;
+    background: var(--surface-3); color: var(--text-2);
+    font-size: 11px; font-weight: 600;
+}
+.chat-turn.assistant .chat-avatar {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: var(--accent-ink);
+}
+
+.chat-suggestions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.chat-input { display: flex; gap: 10px; }
+.chat-input input { flex: 1; }
+.chat-empty { color: var(--muted); font-size: 13px; padding: 24px 0; text-align: center; }
+
 /* ============================= responsive ============================== */
 
 @media (max-width: 1120px) {
@@ -918,6 +1041,8 @@ input[type="range"]::-moz-range-thumb {
 
 @media (max-width: 620px) {
     .tiles { grid-template-columns: 1fr; }
+    .funnel-row { grid-template-columns: 92px 1fr auto; gap: 8px; }
+    .alert-pop { left: 12px; right: 12px; bottom: 12px; max-width: none; }
     .form-grid { grid-template-columns: 1fr; }
     .pace-panel { grid-template-columns: 1fr; justify-items: start; }
     .topbar { flex-direction: column; align-items: stretch; }

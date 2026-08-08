@@ -1,10 +1,10 @@
 package com.jobtrail.service;
 
 import com.jobtrail.domain.AppSettings;
+import com.jobtrail.service.scan.ImapConnector;
 import jakarta.mail.Address;
 import jakarta.mail.Folder;
 import jakarta.mail.Message;
-import jakarta.mail.Session;
 import jakarta.mail.Store;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.search.ComparisonTerm;
@@ -17,7 +17,6 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
-import java.util.Properties;
 
 /**
  * Optional IMAP poller. When enabled it reads the inbox, matches senders
@@ -32,6 +31,7 @@ public class ReplyWatcher {
 
     private final SettingsService settingsService;
     private final OutreachService outreachService;
+    private final ImapConnector connector;
 
     private volatile Instant lastPollAt;
     private volatile Instant lastSuccessAt;
@@ -65,29 +65,10 @@ public class ReplyWatcher {
 
     /** Connects, scans and returns how many threads were flipped to REPLIED. */
     public int scan(AppSettings s, Instant since) throws Exception {
-        if (s.getImapHost() == null || s.getImapHost().isBlank()
-                || s.getImapUsername() == null || s.getImapUsername().isBlank()) {
-            throw new IllegalStateException("IMAP host and username are required");
-        }
-
-        Properties p = new Properties();
-        p.put("mail.store.protocol", "imaps");
-        p.put("mail.imaps.ssl.enable", "true");
-        p.put("mail.imaps.connectiontimeout", "15000");
-        p.put("mail.imaps.timeout", "30000");
-        Session session = Session.getInstance(p);
-
         int matched = 0;
-        Store store = session.getStore("imaps");
+        Store store = connector.connect(s);
         try {
-            store.connect(s.getImapHost(), s.getImapPort(), s.getImapUsername(), s.getImapPassword());
-            String folderName = (s.getImapFolder() == null || s.getImapFolder().isBlank())
-                    ? "INBOX" : s.getImapFolder();
-            Folder folder = store.getFolder(folderName);
-            if (!folder.exists()) {
-                throw new IllegalStateException("Mail folder \"" + folderName + "\" does not exist");
-            }
-            folder.open(Folder.READ_ONLY);
+            Folder folder = connector.openReadOnly(store, s.getImapFolder());
             try {
                 Message[] messages = folder.search(
                         new ReceivedDateTerm(ComparisonTerm.GE, Date.from(since)));
@@ -98,11 +79,7 @@ public class ReplyWatcher {
                 folder.close(false);
             }
         } finally {
-            try {
-                store.close();
-            } catch (Exception ignored) {
-                // closing a dead connection is not worth reporting
-            }
+            connector.closeQuietly(store);
         }
         return matched;
     }

@@ -20,6 +20,8 @@ public class SettingsForm {
 
     private String attachmentPath;
     private String attachmentName;
+    /** CV used to ground AI decisions. Blank falls back to the attachment. */
+    private String resumePath;
 
     private String smtpHost;
     private Integer smtpPort;
@@ -47,6 +49,15 @@ public class SettingsForm {
     private String imapPassword;
     private String imapFolder;
     private Integer imapPollMinutes;
+
+    private Boolean scanEnabled;
+    private Integer scanDays;
+    private String scanFolders;
+    private Boolean alertPopups;
+    private Integer ghostAfterDays;
+
+    private Boolean aiEnabled;
+    private Integer aiMaxCallsPerScan;
 
     private Integer defaultFollowUpIntervalDays;
     private Integer defaultMaxFollowUps;

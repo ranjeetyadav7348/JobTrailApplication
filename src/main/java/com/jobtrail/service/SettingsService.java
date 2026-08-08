@@ -9,6 +9,7 @@ import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Service
@@ -51,6 +52,7 @@ public class SettingsService {
         s.setSignatureHtml(str(f.getSignatureHtml(), s.getSignatureHtml()));
         s.setAttachmentPath(trim(str(f.getAttachmentPath(), s.getAttachmentPath())));
         s.setAttachmentName(trim(str(f.getAttachmentName(), s.getAttachmentName())));
+        s.setResumePath(trim(str(f.getResumePath(), s.getResumePath())));
 
         s.setSmtpHost(trim(str(f.getSmtpHost(), s.getSmtpHost())));
         s.setSmtpPort(clamp(num(f.getSmtpPort(), s.getSmtpPort()), 1, 65535));
@@ -85,6 +87,15 @@ public class SettingsService {
         s.setImapFolder(str(f.getImapFolder(), s.getImapFolder()));
         s.setImapPollMinutes(clamp(num(f.getImapPollMinutes(), s.getImapPollMinutes()), 1, 1440));
 
+        s.setScanEnabled(bool(f.getScanEnabled(), s.isScanEnabled()));
+        s.setScanDays(clamp(num(f.getScanDays(), s.getScanDays()), 1, 365));
+        s.setScanFolders(str(f.getScanFolders(), s.getScanFolders()));
+        s.setAlertPopups(bool(f.getAlertPopups(), s.isAlertPopups()));
+        s.setGhostAfterDays(clamp(num(f.getGhostAfterDays(), s.getGhostAfterDays()), 3, 180));
+
+        s.setAiEnabled(bool(f.getAiEnabled(), s.isAiEnabled()));
+        s.setAiMaxCallsPerScan(clamp(num(f.getAiMaxCallsPerScan(), s.getAiMaxCallsPerScan()), 0, 2000));
+
         s.setDefaultFollowUpIntervalDays(
                 clamp(num(f.getDefaultFollowUpIntervalDays(), s.getDefaultFollowUpIntervalDays()), 1, 90));
         s.setDefaultMaxFollowUps(clamp(num(f.getDefaultMaxFollowUps(), s.getDefaultMaxFollowUps()), 0, 10));
@@ -92,6 +103,17 @@ public class SettingsService {
         AppSettings saved = repo.save(s);
         mailSenderProvider.invalidate();
         return saved;
+    }
+
+    /**
+     * Remembers when the mailbox was last read, so the next scheduled pass can
+     * be incremental instead of re-reading a month of mail.
+     */
+    @Transactional
+    public void recordScan(Instant at) {
+        AppSettings s = get();
+        s.setLastScanAt(at);
+        repo.save(s);
     }
 
     @Transactional
@@ -126,6 +148,15 @@ public class SettingsService {
             s.setFromEmail(username);
             s.setImapUsername(username);
             s.setImapPassword(password);
+        }
+
+        // Where the CV lives differs per deployment — a local path in
+        // development, a mounted file in a container — so it is seeded from the
+        // environment rather than carried as a default in the entity.
+        String resume = firstNonBlank(env.getProperty("RESUME_PATH"), "");
+        if (!resume.isBlank()) {
+            s.setResumePath(resume);
+            s.setAttachmentPath(resume);
         }
         s.setMinIntervalSeconds(Math.max(intervalFloorSeconds(), s.getMinIntervalSeconds()));
         return repo.save(s);

@@ -114,7 +114,17 @@
         activeTemplateId: null,
         outreach: [],
         demoLoaded: false,
-        openDrawerId: null
+        openDrawerId: null,
+        applications: [],
+        appStats: null,
+        appOptions: null,
+        alerts: [],
+        // Popups are shown once per page load; the server still remembers which
+        // alerts were dismissed, so a reload will not replay ones you actioned.
+        shownAlerts: new Set(),
+        conversationId: null,
+        chatTurns: [],
+        chatAvailable: false
     };
 
     /* ------------------------------- charts ------------------------------ */
@@ -306,6 +316,646 @@
                         ${esc(fmtWhen(m.sentAt || m.queuedAt))}</div>
                 </div>`).join('')
             : '<div class="list-empty">Nothing has moved yet.</div>';
+    }
+
+    /* ---------------------------- applications --------------------------- */
+
+    async function loadApplicationOptions() {
+        if (state.appOptions) return state.appOptions;
+        state.appOptions = await api('/api/applications/options');
+
+        const statusSelect = $('#app-status-filter');
+        const platformSelect = $('#app-platform-filter');
+        statusSelect.innerHTML = '<option value="">All statuses</option>'
+            + state.appOptions.statuses.map(o =>
+                `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+        platformSelect.innerHTML = '<option value="">All platforms</option>'
+            + state.appOptions.platforms.map(o =>
+                `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+        return state.appOptions;
+    }
+
+    async function loadApplications() {
+        const params = new URLSearchParams();
+        const q = $('#app-search').value.trim();
+        const status = $('#app-status-filter').value;
+        const platform = $('#app-platform-filter').value;
+        if (q) params.set('q', q);
+        if (status) params.set('status', status);
+        if (platform) params.set('platform', platform);
+
+        const [stats, rows] = await Promise.all([
+            api('/api/applications/stats'),
+            api(`/api/applications?${params}`)
+        ]);
+        state.appStats = stats;
+        state.applications = rows;
+        renderApplications();
+    }
+
+    function renderApplications() {
+        const s = state.appStats;
+        if (!s) return;
+
+        const empty = s.total === 0;
+        $('#app-empty').hidden = !empty;
+        $('#app-body').hidden = empty;
+
+        if (empty) {
+            const scan = s.scan;
+            $('#app-empty-note').textContent = scan.configured
+                ? `Ready to read ${scan.folders.join(', ')} over the last ${scan.scanDays} days.`
+                : 'Add your IMAP details under Settings → Reply detection first — scanning uses the same account.';
+            return;
+        }
+
+        renderAppTiles(s);
+        renderFunnel(s.funnel);
+        renderAppTrend(s.weeklyTrend);
+        renderPlatformTable(s.platforms);
+        renderAppPipeline(s.byStatus);
+        renderDeadlineList(s.upcomingDeadlines);
+        renderNudgeList(s.needsFollowUp);
+        renderAppTable(state.applications);
+    }
+
+    function renderAppTiles(s) {
+        const responseFoot = s.medianDaysToFirstResponse == null
+            ? 'no replies yet'
+            : `typically ${s.medianDaysToFirstResponse} day${s.medianDaysToFirstResponse === 1 ? '' : 's'}`;
+
+        $('#app-tiles').innerHTML = [
+            tile('Applications', 'i-briefcase', s.total,
+                `${s.active} still live · ${s.appliedThisWeek} this week`),
+            tile('Reply rate', 'i-reply', `${s.responseRate}%`, responseFoot, s.responseRate),
+            tile('Interviews', 'i-users', `${s.interviewRate}%`,
+                `${s.interviewsScheduled} scheduled now`, s.interviewRate),
+            tile('Assessments', 'i-target', s.assessmentsPending,
+                s.assessmentsPending ? 'waiting on you' : 'none outstanding')
+        ].join('');
+    }
+
+    /**
+     * Stage-by-stage drop-off. Each bar is drawn against the *applied* count so
+     * the narrowing is to scale, and every row states its own percentage — the
+     * bar length alone would not survive a screenshot at small sizes.
+     */
+    function renderFunnel(stages) {
+        const applied = stages.length ? stages[0].count : 0;
+        $('#app-funnel').innerHTML = stages.map(stage => {
+            const pct = applied === 0 ? 0 : (stage.count / applied) * 100;
+            const colour = statusColorOf(stage.stage);
+            return `<div class="funnel-row">
+                <div class="funnel-label">${esc(stage.label)}</div>
+                <div class="funnel-track">
+                    <div class="funnel-fill" style="width:${Math.max(1, pct)}%;background:${colour}"></div>
+                </div>
+                <div class="funnel-value">${stage.count}<em>${stage.pctOfApplied}%</em></div>
+            </div>`;
+        }).join('');
+    }
+
+    /** Applications sent per week, paired with replies received that week. */
+    function renderAppTrend(weeks) {
+        const host = $('#app-trend');
+        const W = 620, H = 190, padL = 30, padR = 8, padT = 12, padB = 26;
+        const plotW = W - padL - padR;
+        const plotH = H - padT - padB;
+        const max = niceMax(Math.max(1, ...weeks.map(w => Math.max(w.applied, w.responses))));
+        const slot = plotW / weeks.length;
+        const barW = Math.max(4, (slot - 8) / 2);
+
+        const ticks = [0, max / 2, max];
+        const grid = ticks.map(t => {
+            const y = padT + plotH - (t / max) * plotH;
+            return `<line x1="${padL}" y1="${y}" x2="${W - padR}" y2="${y}"/>`;
+        }).join('');
+        const labels = ticks.map(t => {
+            const y = padT + plotH - (t / max) * plotH;
+            return `<text class="chart-label" x="${padL - 8}" y="${y + 3.5}" text-anchor="end">${t}</text>`;
+        }).join('');
+
+        const bars = weeks.map((w, i) => {
+            const base = padL + i * slot + (slot - barW * 2 - 3) / 2;
+            const label = new Date(w.weekStart + 'T00:00:00')
+                .toLocaleDateString([], { day: 'numeric', month: 'short' });
+            return ['applied', 'responses'].map((key, j) => {
+                const value = w[key];
+                const x = base + j * (barW + 3);
+                if (value === 0) {
+                    return `<path d="${barPath(x, padT + plotH - 2, barW, 2, 1)}" fill="var(--grid)"/>`;
+                }
+                const h = (value / max) * plotH;
+                const colour = key === 'applied' ? 'var(--s-sent)' : 'var(--s-replied)';
+                return `<path class="bar" d="${barPath(x, padT + plotH - h, barW, h, 3)}" fill="${colour}"
+                        data-tip="Week of ${esc(label)}|${value} ${key === 'applied' ? 'applied' : 'replied'}"/>`;
+            }).join('');
+        }).join('');
+
+        const xLabels = weeks.map((w, i) => {
+            if ((weeks.length - 1 - i) % 3 !== 0) return '';
+            const date = new Date(w.weekStart + 'T00:00:00');
+            const x = padL + i * slot + slot / 2;
+            return `<text class="chart-label" x="${x}" y="${H - 8}" text-anchor="middle">${
+                date.toLocaleDateString([], { day: 'numeric', month: 'short' })}</text>`;
+        }).join('');
+
+        host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img"
+                aria-label="Applications sent and replies received per week">
+            <g class="chart-grid">${grid}</g>
+            ${labels}
+            <g class="chart-axis"><line x1="${padL}" y1="${padT + plotH}" x2="${W - padR}" y2="${padT + plotH}"/></g>
+            ${bars}${xLabels}
+        </svg>`;
+
+        const totalApplied = weeks.reduce((a, w) => a + w.applied, 0);
+        $('#app-trend-total').textContent = totalApplied;
+        $('#app-trend-legend').innerHTML = `
+            <span class="legend-item"><i class="swatch" style="background:var(--s-sent)"></i>
+                Applied <b>${totalApplied}</b></span>
+            <span class="legend-item"><i class="swatch" style="background:var(--s-replied)"></i>
+                Replied <b>${weeks.reduce((a, w) => a + w.responses, 0)}</b></span>`;
+        wireTips(host);
+    }
+
+    function renderPlatformTable(platforms) {
+        $('#platform-rows').innerHTML = platforms.length
+            ? platforms.map(p => `
+                <tr>
+                    <td><div class="cell-strong">
+                        <i class="platform-dot" style="background:${esc(p.colour)}"></i>
+                        <strong>${esc(p.label)}</strong>
+                    </div></td>
+                    <td class="num">${p.total}</td>
+                    <td class="num">${p.responded}</td>
+                    <td class="num">${p.interviews}</td>
+                    <td class="num">${p.responseRate}%</td>
+                </tr>`).join('')
+            : '<tr><td colspan="5" class="empty-inline">Nothing tracked yet.</td></tr>';
+    }
+
+    /** Same segmented bar as the outreach pipeline, driven by server-side colours. */
+    function renderAppPipeline(byStatus) {
+        const host = $('#app-pipeline');
+        const legend = $('#app-pipeline-legend');
+        const total = byStatus.reduce((sum, i) => sum + i.count, 0);
+        if (total === 0) {
+            host.innerHTML = '';
+            legend.innerHTML = '<div class="list-empty">No applications yet.</div>';
+            return;
+        }
+
+        const W = 420, H = 38, gap = 2;
+        const usable = W - gap * Math.max(0, byStatus.length - 1);
+        let x = 0;
+        const segments = byStatus.map(i => {
+            const w = Math.max(4, (i.count / total) * usable);
+            const rect = `<rect class="bar" x="${x}" y="0" width="${w}" height="${H}" rx="5"
+                    fill="var(${i.cssVar})"
+                    data-tip="${esc(i.label)}|${i.count} of ${total} applications"/>`;
+            x += w + gap;
+            return rect;
+        }).join('');
+
+        host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"
+                style="height:38px" role="img" aria-label="Applications by status">${segments}</svg>`;
+        legend.innerHTML = byStatus.map(i => `
+            <span class="legend-item">
+                <i class="swatch" style="background:var(${i.cssVar})"></i>
+                ${esc(i.label)} <b>${i.count}</b>
+            </span>`).join('');
+        wireTips(host);
+    }
+
+    function renderDeadlineList(items) {
+        $('#deadline-list').innerHTML = items.length
+            ? items.map(a => `
+                <div class="list-row" data-app="${a.id}">
+                    <div class="avatar">${esc(initials(a.company, a.company))}</div>
+                    <div class="grow">
+                        <div class="title">${esc(a.company)}</div>
+                        <div class="meta">${esc(a.roleTitle || a.platformLabel)}</div>
+                    </div>
+                    <div class="when ${dueSoon(a.assessmentDueAt) ? 'due-soon' : ''}">
+                        ${esc(fmtWhen(a.assessmentDueAt))}</div>
+                </div>`).join('')
+            : '<div class="list-empty">No assessment deadlines outstanding.</div>';
+    }
+
+    function renderNudgeList(items) {
+        $('#nudge-list').innerHTML = items.length
+            ? items.map(a => `
+                <div class="list-row" data-app="${a.id}">
+                    <div class="avatar">${esc(initials(a.company, a.company))}</div>
+                    <div class="grow">
+                        <div class="title">${esc(a.company)}</div>
+                        <div class="meta">${esc(a.roleTitle || a.platformLabel)} · applied
+                            ${esc(fmtWhen(a.appliedAt))}</div>
+                    </div>
+                    <div class="when">${a.staleDays}d quiet</div>
+                </div>`).join('')
+            : '<div class="list-empty">Nothing has gone cold.</div>';
+    }
+
+    function renderAppTable(rows) {
+        $('#app-table-empty').hidden = rows.length > 0;
+        $('#app-rows').innerHTML = rows.map(a => `
+            <tr data-app="${a.id}">
+                <td>
+                    <div class="cell-strong"><strong>${esc(a.company)}</strong></div>
+                    <div class="cell-sub">${esc(a.roleTitle || '—')}${
+                        a.location ? ' · ' + esc(a.location) : ''}</div>
+                </td>
+                <td><div class="cell-strong">
+                    <i class="platform-dot" style="background:${esc(a.platformColour)}"></i>
+                    ${esc(a.platformLabel)}
+                </div></td>
+                <td>${pillOf(a.status, a.statusLabel)}</td>
+                <td>${esc(fmtWhen(a.appliedAt))}</td>
+                <td>${esc(fmtWhen(a.lastEventAt || a.appliedAt))}</td>
+                <td class="actions-col">
+                    ${a.assessmentUrl
+                        ? `<a class="icon-btn" href="${esc(a.assessmentUrl)}" target="_blank" rel="noopener"
+                              title="Open the assessment"><svg><use href="#i-external"/></svg></a>`
+                        : ''}
+                    <button class="icon-btn" data-app-delete="${a.id}" title="Remove">
+                        <svg><use href="#i-trash"/></svg></button>
+                </td>
+            </tr>`).join('');
+    }
+
+    function pillOf(status, label) {
+        return `<span class="pill s-${esc(status)}"><i class="dot"></i>${esc(label)}</span>`;
+    }
+
+    function statusColorOf(status) {
+        const option = (state.appOptions && state.appOptions.statuses || [])
+            .find(o => o.value === status);
+        if (!option) return 'var(--accent)';
+        return getComputedStyle(document.documentElement)
+            .getPropertyValue(option.colour).trim() || 'var(--accent)';
+    }
+
+    function dueSoon(iso) {
+        if (!iso) return false;
+        return new Date(iso) - Date.now() < 48 * 3600 * 1000;
+    }
+
+    /** Timeline dots, mapped onto the same palette the status pills use. */
+    function eventColour(kind) {
+        const map = {
+            APPLIED: '--s-sent', ACKNOWLEDGED: '--s-queued', ASSESSMENT_INVITE: '--s-opened',
+            INTERVIEW_INVITE: '--accent', OFFER: '--s-replied', REJECTED: '--s-failed'
+        };
+        return `var(${map[kind] || '--s-draft'})`;
+    }
+
+    async function openApplication(id) {
+        const detail = await api(`/api/applications/${id}`);
+        const a = detail.application;
+        state.openDrawerId = id;
+
+        const timeline = detail.events.length
+            ? detail.events.map(e => `
+                <div class="tl-item">
+                    <div class="tl-rail">
+                        <i class="tl-dot" style="background:${eventColour(e.kind)}"></i>
+                        <div class="tl-line"></div>
+                    </div>
+                    <div class="tl-body">
+                        <div class="tl-title">${esc(e.kindLabel)}${
+                            e.lowConfidence ? ' <span class="tag">unsure</span>' : ''}</div>
+                        <div class="tl-meta">${esc(e.subject || '(no subject)')}</div>
+                        <div class="tl-meta">${esc(e.fromName || e.fromAddress)} ·
+                            ${esc(fmtWhen(e.receivedAt))}</div>
+                        ${e.actionUrl ? `<a class="btn ghost tiny" style="margin-top:8px"
+                            href="${esc(e.actionUrl)}" target="_blank" rel="noopener">Open link</a>` : ''}
+                    </div>
+                </div>`).join('')
+            : '<div class="list-empty">No mail recorded for this application.</div>';
+
+        const statusButtons = (state.appOptions ? state.appOptions.statuses : [])
+            .filter(o => o.value !== a.status)
+            .map(o => `<button class="btn ghost tiny" data-set-status="${esc(o.value)}">${esc(o.label)}</button>`)
+            .join('');
+
+        $('#drawer').innerHTML = `
+            <div class="drawer-head">
+                <div>
+                    <h2>${esc(a.company)}</h2>
+                    <p>${esc(a.roleTitle || 'Role not stated')} · ${esc(a.platformLabel)}</p>
+                </div>
+                <button class="icon-btn" data-act="close-drawer"><svg><use href="#i-x"/></svg></button>
+            </div>
+            <div class="drawer-body">
+                <div class="drawer-actions">
+                    ${a.assessmentUrl ? `<a class="btn primary" href="${esc(a.assessmentUrl)}"
+                        target="_blank" rel="noopener">Open assessment</a>` : ''}
+                    ${a.jobUrl ? `<a class="btn ghost" href="${esc(a.jobUrl)}"
+                        target="_blank" rel="noopener">Job posting</a>` : ''}
+                    <button class="btn ghost" data-act="archive">Archive</button>
+                </div>
+                <dl class="kv">
+                    <dt>Status</dt><dd>${pillOf(a.status, a.statusLabel)}</dd>
+                    <dt>Applied</dt><dd>${esc(fmtWhen(a.appliedAt))}</dd>
+                    <dt>Last update</dt><dd>${esc(fmtWhen(a.lastEventAt))}</dd>
+                    <dt>First reply</dt><dd>${a.firstResponseAt
+                        ? esc(fmtWhen(a.firstResponseAt)) : 'none yet'}</dd>
+                    ${a.assessmentDueAt ? `<dt>Assessment due</dt>
+                        <dd class="${dueSoon(a.assessmentDueAt) ? 'due-soon' : ''}">${
+                        esc(fmtWhen(a.assessmentDueAt))}</dd>` : ''}
+                    ${a.location ? `<dt>Location</dt><dd>${esc(a.location)}</dd>` : ''}
+                    ${a.sourceEmail ? `<dt>From</dt><dd>${esc(a.sourceEmail)}</dd>` : ''}
+                    ${a.notes ? `<dt>Notes</dt><dd>${esc(a.notes)}</dd>` : ''}
+                </dl>
+                <div>
+                    <h3 style="margin-bottom:8px">Move to</h3>
+                    <div class="drawer-actions">${statusButtons}</div>
+                </div>
+                <div>
+                    <h3 style="margin-bottom:12px">Mail timeline</h3>
+                    <div class="timeline">${timeline}</div>
+                </div>
+            </div>`;
+
+        $('#drawer').hidden = false;
+        $('#drawer-scrim').hidden = false;
+
+        $('#drawer').onclick = async ev => {
+            const statusBtn = ev.target.closest('[data-set-status]');
+            const actBtn = ev.target.closest('[data-act]');
+            if (!statusBtn && !actBtn) return;
+            try {
+                if (actBtn && actBtn.dataset.act === 'close-drawer') return closeDrawer();
+                if (actBtn && actBtn.dataset.act === 'archive') {
+                    await api(`/api/applications/${id}/archive`, { method: 'POST', body: { archived: true } });
+                    toast('Archived.');
+                    closeDrawer();
+                    return loadApplications();
+                }
+                if (statusBtn) {
+                    await api(`/api/applications/${id}/status`,
+                        { method: 'POST', body: { status: statusBtn.dataset.setStatus } });
+                    toast('Status updated.');
+                    await openApplication(id);
+                    await loadApplications();
+                }
+            } catch (err) {
+                toast(err.message, 'err');
+            }
+        };
+    }
+
+    async function openAddApplicationModal() {
+        await loadApplicationOptions();
+        const platforms = state.appOptions.platforms
+            .map(o => `<option value="${esc(o.value)}"${o.value === 'DIRECT' ? ' selected' : ''}>${
+                esc(o.label)}</option>`).join('');
+        const statuses = state.appOptions.statuses
+            .map(o => `<option value="${esc(o.value)}">${esc(o.label)}</option>`).join('');
+
+        const modal = $('#modal');
+        modal.innerHTML = `
+            <div class="modal-head">
+                <h2>Track an application</h2>
+                <button class="icon-btn" data-close><svg><use href="#i-x"/></svg></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-grid">
+                    <label class="field"><span>Company</span>
+                        <input id="na-company" type="text" placeholder="Northwind Labs"></label>
+                    <label class="field"><span>Role</span>
+                        <input id="na-role" type="text" placeholder="Senior Java Engineer"></label>
+                    <label class="field"><span>Platform</span>
+                        <select id="na-platform" class="select">${platforms}</select></label>
+                    <label class="field"><span>Status</span>
+                        <select id="na-status" class="select">${statuses}</select></label>
+                    <label class="field"><span>Location</span>
+                        <input id="na-location" type="text" placeholder="Remote · Bengaluru"></label>
+                    <label class="field"><span>Job link</span>
+                        <input id="na-url" type="url" placeholder="https://…"></label>
+                    <label class="field span-2"><span>Notes</span>
+                        <textarea id="na-notes" rows="2"></textarea></label>
+                </div>
+            </div>
+            <div class="modal-foot">
+                <button class="btn ghost" data-close>Cancel</button>
+                <button class="btn primary" data-save>Add application</button>
+            </div>`;
+
+        modal.hidden = false;
+        $('#modal-scrim').hidden = false;
+
+        modal.onclick = async ev => {
+            if (ev.target.closest('[data-close]')) return closeModal();
+            if (!ev.target.closest('[data-save]')) return;
+            const company = $('#na-company').value.trim();
+            if (!company) return toast('Company is required.', 'err');
+            try {
+                await api('/api/applications', {
+                    method: 'POST',
+                    body: {
+                        company,
+                        roleTitle: $('#na-role').value.trim(),
+                        location: $('#na-location').value.trim(),
+                        platform: $('#na-platform').value,
+                        status: $('#na-status').value,
+                        jobUrl: $('#na-url').value.trim(),
+                        notes: $('#na-notes').value.trim()
+                    }
+                });
+                toast('Added.');
+                closeModal();
+                await loadApplications();
+            } catch (err) {
+                toast(err.message, 'err');
+            }
+        };
+    }
+
+    async function runScan(button) {
+        if (button) button.disabled = true;
+        // Browsers only grant notification permission off a real click, so this
+        // is the moment to ask rather than on page load.
+        askForNotifications();
+        toast('Reading your mailbox — this can take a minute on a busy account.');
+        try {
+            const result = await api('/api/scan', { method: 'POST', body: {} });
+            toast(result.message, result.ok ? 'ok' : 'err');
+            if (state.view === 'applications') await loadApplications();
+            await pollAlerts();
+        } finally {
+            if (button) button.disabled = false;
+        }
+    }
+
+    /* ------------------------------ assistant ---------------------------- */
+
+    /**
+     * The conversation id is kept in localStorage rather than memory, so the
+     * thread survives a reload — the history itself lives in Postgres.
+     */
+    function conversationId() {
+        try {
+            let id = localStorage.getItem('jobtrail-chat');
+            return id || null;
+        } catch {
+            return state.conversationId;
+        }
+    }
+
+    function rememberConversation(id) {
+        state.conversationId = id;
+        try { localStorage.setItem('jobtrail-chat', id); } catch { /* private mode */ }
+    }
+
+    async function loadChat() {
+        const id = conversationId();
+        const status = await api(`/api/chat${id ? `?conversationId=${encodeURIComponent(id)}` : ''}`);
+        state.chatAvailable = status.available;
+        state.chatTurns = status.history || [];
+
+        $('#chat-unavailable').hidden = status.available;
+        $('#chat-form').hidden = !status.available;
+        $('#chat-suggestions').hidden = !status.available;
+        renderChat();
+    }
+
+    function renderChat(pending) {
+        const log = $('#chat-log');
+        const turns = state.chatTurns.slice();
+        if (pending) {
+            turns.push({ role: 'user', text: pending });
+            turns.push({ role: 'assistant', text: 'Thinking…', pending: true });
+        }
+
+        log.innerHTML = turns.length
+            ? turns.map(t => `
+                <div class="chat-turn ${esc(t.role)}${t.pending ? ' pending' : ''}">
+                    <div class="chat-avatar">${t.role === 'user' ? 'You' : 'AI'}</div>
+                    <div class="chat-bubble">${esc(t.text)}</div>
+                </div>`).join('')
+            : '<div class="chat-empty">Ask anything about your applications.</div>';
+
+        log.scrollTop = log.scrollHeight;
+    }
+
+    async function sendChat(question) {
+        if (!question || !question.trim()) return;
+        const text = question.trim();
+        $('#chat-question').value = '';
+        $('#chat-send').disabled = true;
+        renderChat(text);
+
+        try {
+            const reply = await api('/api/chat', {
+                method: 'POST',
+                body: { conversationId: conversationId(), question: text }
+            });
+            rememberConversation(reply.conversationId);
+            state.chatTurns.push({ role: 'user', text });
+            state.chatTurns.push({ role: 'assistant', text: reply.answer });
+            renderChat();
+        } catch (err) {
+            toast(err.message, 'err');
+            renderChat();
+        } finally {
+            $('#chat-send').disabled = false;
+            $('#chat-question').focus();
+        }
+    }
+
+    async function clearChat() {
+        const id = conversationId();
+        if (id) {
+            await api(`/api/chat?conversationId=${encodeURIComponent(id)}`, { method: 'DELETE' });
+        }
+        try { localStorage.removeItem('jobtrail-chat'); } catch { /* private mode */ }
+        state.conversationId = null;
+        state.chatTurns = [];
+        renderChat();
+        toast('Conversation cleared.');
+    }
+
+    /* ------------------------------- alerts ------------------------------ */
+
+    async function pollAlerts() {
+        let feed;
+        try {
+            feed = await api('/api/alerts');
+        } catch {
+            return; // a dropped poll recovers on the next tick
+        }
+        state.alerts = feed.alerts;
+
+        const badge = $('#nav-alert-count');
+        badge.hidden = feed.unread === 0;
+        badge.textContent = feed.unread;
+
+        if (!feed.popupsEnabled) return;
+        feed.alerts
+            .filter(a => a.popup && !state.shownAlerts.has(a.id))
+            .forEach(a => {
+                state.shownAlerts.add(a.id);
+                showAlertPopup(a);
+                notifyDesktop(a);
+            });
+    }
+
+    /**
+     * Popups stack in the corner rather than taking over the screen: a test
+     * link arriving while you are mid-edit must not steal focus or discard what
+     * you were typing.
+     */
+    function showAlertPopup(alert) {
+        const host = $('#alert-pop');
+        host.hidden = false;
+
+        const card = document.createElement('div');
+        card.className = `alert-card ${alert.severity === 'critical' ? '' : 'warn'}`;
+        card.dataset.alert = alert.id;
+        card.innerHTML = `
+            <div class="alert-kind"><svg><use href="#i-bell"/></svg>${esc(alert.kindLabel)}</div>
+            <h4>${esc(alert.title)}</h4>
+            ${alert.body ? `<p>${esc(alert.body)}</p>` : ''}
+            <div class="alert-actions">
+                ${alert.actionUrl
+                    ? `<a class="btn primary tiny" href="${esc(alert.actionUrl)}" target="_blank"
+                          rel="noopener" data-ack>Open link</a>`
+                    : ''}
+                <button class="btn ghost tiny" data-ack>Dismiss</button>
+                ${alert.deadlineAt
+                    ? `<span class="alert-deadline">due ${esc(fmtWhen(alert.deadlineAt))}</span>` : ''}
+            </div>`;
+
+        card.addEventListener('click', async ev => {
+            if (!ev.target.closest('[data-ack]')) return;
+            card.remove();
+            if (!host.children.length) host.hidden = true;
+            try {
+                await api(`/api/alerts/${alert.id}/ack`, { method: 'POST' });
+                await pollAlerts();
+            } catch (err) {
+                toast(err.message, 'err');
+            }
+        });
+
+        host.appendChild(card);
+    }
+
+    /** Best effort only — a blocked or denied permission must not break anything. */
+    function notifyDesktop(alert) {
+        if (!('Notification' in window) || Notification.permission !== 'granted') return;
+        try {
+            new Notification(alert.kindLabel, { body: alert.title, tag: `jobtrail-${alert.id}` });
+        } catch {
+            /* some browsers reject notifications outside a service worker */
+        }
+    }
+
+    function askForNotifications() {
+        if (!('Notification' in window) || Notification.permission !== 'default') return;
+        Notification.requestPermission().catch(() => { /* user dismissed */ });
     }
 
     /* ------------------------------ outreach ----------------------------- */
@@ -778,9 +1428,41 @@
             : s.attachmentReady ? ' · file found' : ' · FILE NOT FOUND, nothing will be attached';
         attach.style.color = s.attachmentReady ? 'var(--ok, #2e7d32)' : 'var(--err, #c62828)';
 
+        // Blank is a valid state here — it means "reuse the attachment" — so it
+        // still reports whether a file was actually resolved rather than staying
+        // silent the way the attachment field does.
+        const resume = $('#resume-state');
+        resume.textContent = s.resumeReady
+            ? (s.resumePath ? ' · file found' : ' · using the attachment above')
+            : ' · NO FILE FOUND, AI answers will be ungrounded';
+        resume.style.color = s.resumeReady ? 'var(--ok, #2e7d32)' : 'var(--err, #c62828)';
+
         const smtpState = $('#smtp-state');
         smtpState.className = `pill ${s.smtpConfigured ? 'ok' : 'err'}`;
         smtpState.innerHTML = `<i class="dot"></i>${s.smtpConfigured ? 'Ready to send' : 'Incomplete'}`;
+
+        // Scanning borrows the reply-detection credentials, so it can be
+        // switched on while still being unable to connect. Say which it is.
+        const scanState = $('#scan-state');
+        const scanReady = s.imapConfigured;
+        scanState.className = `pill ${scanReady ? 'ok' : 'err'}`;
+        scanState.innerHTML = `<i class="dot"></i>${
+            !scanReady ? 'IMAP details needed'
+                : s.scanEnabled ? 'Watching' : 'Ready, not watching'}`;
+        $('#scan-hint').textContent = s.lastScanAt
+            ? `Last read ${fmtWhen(s.lastScanAt)}.`
+            : 'Never scanned yet.';
+
+        const aiState = $('#ai-state');
+        aiState.className = `pill ${s.aiModelAvailable ? 'ok' : 'err'}`;
+        aiState.innerHTML = `<i class="dot"></i>${
+            !s.aiModelAvailable ? 'No model configured'
+                : s.aiEnabled ? `On · up to ${s.aiMaxCallsPerScan}/scan` : 'Model ready, switched off'}`;
+        $('#ai-model-note').textContent = s.aiModelAvailable
+            ? 'A model is configured and reachable.'
+            : 'Set ANTHROPIC_API_KEY in the environment (or spring.ai.anthropic.api-key in '
+              + 'application.yml) and restart. The provider is configuration, not a setting, '
+              + 'so switching models never touches application code.';
 
         updatePaceOutputs();
     }
@@ -1028,6 +1710,8 @@ hiring@brightpath.com"></textarea>
 
     const PAGES = {
         dashboard: ['Dashboard', 'Everything you have sent, and everything still to send.'],
+        applications: ['Applications', 'Every job you applied for, where it came from and what stage it reached.'],
+        assistant: ['Assistant', 'Ask about your pipeline. It remembers the conversation.'],
         outreach: ['Outreach', 'Every thread, its status and when the next follow-up lands.'],
         queue: ['Send queue', 'Emails leave one at a time, never faster than the interval you set.'],
         templates: ['Templates', 'Write once, personalise per recipient with placeholders.'],
@@ -1040,6 +1724,12 @@ hiring@brightpath.com"></textarea>
                 ? '<button class="btn ghost tiny" data-action="clear-demo">Remove demo data</button>' : ''}
                 <button class="btn primary" data-action="add-recipients">
                     <svg><use href="#i-plus"/></svg> Add recipients</button>`;
+        }
+        if (view === 'applications') {
+            return `<button class="btn ghost" data-action="scan-mailbox">
+                        <svg><use href="#i-radar"/></svg> Scan mailbox</button>
+                    <button class="btn primary" data-action="add-application">
+                        <svg><use href="#i-plus"/></svg> Add application</button>`;
         }
         if (view === 'queue') {
             return '<button class="btn ghost" data-action="refresh"><svg><use href="#i-refresh"/></svg> Refresh</button>';
@@ -1073,6 +1763,11 @@ hiring@brightpath.com"></textarea>
                     $('#topbar-actions').innerHTML = topbarFor('dashboard');
                 }
                 renderDashboard();
+            } else if (state.view === 'applications') {
+                await loadApplicationOptions();
+                await loadApplications();
+            } else if (state.view === 'assistant') {
+                await loadChat();
             } else if (state.view === 'outreach') {
                 await loadOutreach();
             } else if (state.view === 'queue') {
@@ -1110,6 +1805,10 @@ hiring@brightpath.com"></textarea>
     function startTimers() {
         pollQueue();
         setInterval(pollQueue, 2500);
+        // Alerts are the whole point of the tracker, so they are polled
+        // independently of whichever view happens to be open.
+        pollAlerts();
+        setInterval(pollAlerts, 20000);
         setInterval(() => {
             renderPaceCard();
             if (state.view === 'queue' && state.queue) {
@@ -1121,6 +1820,7 @@ hiring@brightpath.com"></textarea>
         setInterval(() => {
             if (state.view === 'dashboard') refreshCurrent();
             if (state.view === 'outreach') loadOutreach().catch(() => {});
+            if (state.view === 'applications') loadApplications().catch(() => {});
         }, 8000);
     }
 
@@ -1176,6 +1876,18 @@ hiring@brightpath.com"></textarea>
                         actionBtn.disabled = true;
                         const res = await api('/api/settings/test-imap', { method: 'POST' });
                         toast(res.message, res.ok ? 'ok' : 'err');
+                    } else if (action === 'scan-mailbox') {
+                        await runScan(actionBtn);
+                    } else if (action === 'add-application') {
+                        await openAddApplicationModal();
+                    } else if (action === 'clear-chat') {
+                        await clearChat();
+                    } else if (action === 'list-folders') {
+                        actionBtn.disabled = true;
+                        const folders = await api('/api/scan/folders');
+                        $('#scan-hint').textContent = folders.length
+                            ? 'Available: ' + folders.join(', ')
+                            : 'No folders returned.';
                     }
                 } catch (err) {
                     toast(err.message, 'err');
@@ -1192,6 +1904,8 @@ hiring@brightpath.com"></textarea>
             const cancelBtn = ev.target.closest('[data-cancel]');
             const templateItem = ev.target.closest('[data-template]');
             const openRow = ev.target.closest('[data-open]');
+            const appRow = ev.target.closest('[data-app]');
+            const appDelete = ev.target.closest('[data-app-delete]');
 
             try {
                 if (queueBtn) {
@@ -1224,6 +1938,14 @@ hiring@brightpath.com"></textarea>
                 } else if (templateItem) {
                     state.activeTemplateId = Number(templateItem.dataset.template);
                     renderTemplates();
+                } else if (appDelete) {
+                    ev.stopPropagation();
+                    if (!confirm('Stop tracking this application and delete its mail history?')) return;
+                    await api(`/api/applications/${appDelete.dataset.appDelete}`, { method: 'DELETE' });
+                    toast('Removed.');
+                    await loadApplications();
+                } else if (appRow) {
+                    await openApplication(Number(appRow.dataset.app));
                 } else if (openRow) {
                     await openThread(Number(openRow.dataset.open));
                 }
@@ -1251,6 +1973,25 @@ hiring@brightpath.com"></textarea>
         });
         $('#outreach-filter').addEventListener('change', () =>
             loadOutreach().catch(e => toast(e.message, 'err')));
+
+        let appSearchTimer;
+        $('#app-search').addEventListener('input', () => {
+            clearTimeout(appSearchTimer);
+            appSearchTimer = setTimeout(
+                () => loadApplications().catch(e => toast(e.message, 'err')), 220);
+        });
+        ['#app-status-filter', '#app-platform-filter'].forEach(sel =>
+            $(sel).addEventListener('change', () =>
+                loadApplications().catch(e => toast(e.message, 'err'))));
+
+        $('#chat-form').addEventListener('submit', ev => {
+            ev.preventDefault();
+            sendChat($('#chat-question').value);
+        });
+        $('#chat-suggestions').addEventListener('click', ev => {
+            const btn = ev.target.closest('[data-ask]');
+            if (btn) sendChat(btn.dataset.ask);
+        });
 
         const form = $('#settings-form');
         form.addEventListener('submit', saveSettings);

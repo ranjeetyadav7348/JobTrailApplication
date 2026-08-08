@@ -1,0 +1,159 @@
+name: Build and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+# A second push while a deploy is running would race the first one onto the same
+# single-replica cluster. Queue instead — and don't cancel a deploy midway, which
+# could leave the old pod terminated and the new one never applied.
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: temurin
+          cache: maven
+
+      # The suite runs on in-memory H2 and, via spring.ai.model.embedding=none
+      # in the test profile, downloads no model — so this needs no services and
+      # no secrets.
+      - name: Run tests
+        run: ./mvnw -B test
+
+  build:
+    name: Build and push image
+    needs: test
+    # Don't publish images for pull requests — a PR from a fork would otherwise
+    # push a tag into the registry before anyone has reviewed the code.
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR requires a lowercase path, and GitHub owners can contain capitals.
+      - name: Compute image reference
+        id: meta
+        run: |
+          REPO="$(echo "${IMAGE_NAME}" | tr '[:upper:]' '[:lower:]')"
+          echo "repo=${REGISTRY}/${REPO}" >> "$GITHUB_OUTPUT"
+          echo "image=${REGISTRY}/${REPO}:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # The EC2 node is x86_64. Pinned explicitly rather than left to the
+          # runner's default so the target architecture is a deliberate choice
+          # and not a property of whichever runner picked up the job.
+          platforms: linux/amd64
+          push: true
+          # Immutable SHA tag is what gets deployed, so a rollback is just
+          # re-running an older commit's deploy. `latest` is a convenience only.
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ steps.meta.outputs.repo }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to k3s on EC2
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    # Point this at a GitHub Environment with a required reviewer if you ever
+    # want a manual gate before production.
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_HOST: ${{ secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pin the host key rather than disabling checking, so a hijacked DNS
+          # record or a swapped instance cannot silently receive the deploy.
+          printf '%s\n' "${{ secrets.EC2_HOST_KEY }}" > ~/.ssh/known_hosts
+
+          # Manifests are applied from the repo, so the cluster's desired state
+          # always matches this commit rather than whatever was last edited by
+          # hand on the box.
+          tar czf - k8s | ssh -i ~/.ssh/deploy_key "${SSH_USER}@${SSH_HOST}" \
+            'rm -rf ~/jobtrail-k8s && mkdir -p ~/jobtrail-k8s && tar xzf - -C ~/jobtrail-k8s'
+
+          ssh -i ~/.ssh/deploy_key "${SSH_USER}@${SSH_HOST}" bash -euo pipefail -s <<EOF
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            cd ~/jobtrail-k8s/k8s
+
+            kubectl apply -f 00-namespace.yaml
+            kubectl apply -f 10-postgres.yaml
+            kubectl apply -f 20-app.yaml
+            kubectl apply -f 30-ingress.yaml
+            # Backup CronJob is optional; apply it only if its secrets exist.
+            if kubectl -n jobtrail get secret jobtrail-secrets -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' | grep -q .; then
+              kubectl apply -f 40-backup.yaml
+            fi
+
+            # Set the real image, overriding the placeholder in the manifest.
+            kubectl -n jobtrail set image deployment/jobtrail jobtrail="${IMAGE}"
+
+            # Fail the workflow if the new pod never becomes ready, instead of
+            # reporting a green deploy for a container that is crash-looping.
+            kubectl -n jobtrail rollout status deployment/jobtrail --timeout=6m
+          EOF
+
+      - name: Report failure detail
+        if: failure()
+        env:
+          SSH_HOST: ${{ secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.EC2_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "${SSH_USER}@${SSH_HOST}" bash -s <<'EOF' || true
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            echo "--- pods ---"
+            kubectl -n jobtrail get pods -o wide
+            echo "--- recent events ---"
+            kubectl -n jobtrail get events --sort-by=.lastTimestamp | tail -25
+            echo "--- app logs ---"
+            kubectl -n jobtrail logs deployment/jobtrail --tail=80 --all-containers || true
+          EOF

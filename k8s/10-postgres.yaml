@@ -1,0 +1,101 @@
+# PostgreSQL, in-cluster, on a persistent volume.
+#
+# On single-node k3s the default `local-path` StorageClass writes to
+# /var/lib/rancher/k3s/storage on the node — which on EC2 is the instance's EBS
+# root volume. So the data is already EBS-backed and survives pod restarts and
+# instance reboots without the EBS CSI driver. What it does NOT survive is the
+# instance being terminated and replaced, which is exactly why the pg_dump
+# CronJob in 40-backup.yaml exists.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: jobtrail
+spec:
+  # Headless: the StatefulSet gets a stable DNS name and there is only ever one
+  # replica, so there is nothing to load balance.
+  clusterIP: None
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: jobtrail
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      securityContext:
+        # The postgres image's own uid. Set at pod level so the mounted volume
+        # is group-owned correctly on first creation.
+        fsGroup: 999
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: jobtrail
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: jobtrail-secrets
+                  key: DB_USERNAME
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: jobtrail-secrets
+                  key: DB_PASSWORD
+            # A mounted volume root can contain lost+found, which initdb
+            # refuses to work in. Keeping the cluster in a subdirectory avoids
+            # that entirely.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          # pg_isready, not a TCP check: Postgres accepts connections during
+          # recovery well before it can answer a query.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "jobtrail"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "postgres", "-d", "jobtrail"]
+            initialDelaySeconds: 45
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: local-path
+        resources:
+          requests:
+            storage: 8Gi

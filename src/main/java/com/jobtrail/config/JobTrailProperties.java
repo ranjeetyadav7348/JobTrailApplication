@@ -23,4 +23,27 @@ public class JobTrailProperties {
 
     /** Base URL used to build open-tracking pixel links. */
     private String publicBaseUrl = "http://localhost:8080";
+
+    private final Rag rag = new Rag();
+
+    /** Retrieval tuning for the grounded assistant. */
+    @Getter
+    @Setter
+    public static class Rag {
+
+        /** Target chunk size in words. */
+        private int chunkWords = 180;
+
+        /**
+         * Words repeated from the end of one chunk at the start of the next, so
+         * a fact that straddles a boundary survives intact in one of them.
+         */
+        private int chunkOverlapWords = 40;
+
+        /** Chunks passed to the model as evidence for one decision. */
+        private int topK = 8;
+
+        /** Depth each retrieval arm reports before the two are fused. */
+        private int candidatesPerArm = 40;
+    }
 }

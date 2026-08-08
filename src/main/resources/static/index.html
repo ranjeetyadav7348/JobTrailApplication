@@ -80,6 +80,29 @@
             <polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>
             <path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>
         </symbol>
+        <symbol id="i-briefcase" viewBox="0 0 24 24">
+            <rect x="2" y="7" width="20" height="14" rx="2"/>
+            <path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/>
+        </symbol>
+        <symbol id="i-bell" viewBox="0 0 24 24">
+            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+            <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+        </symbol>
+        <symbol id="i-target" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+        </symbol>
+        <symbol id="i-external" viewBox="0 0 24 24">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+        </symbol>
+        <symbol id="i-radar" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/>
+            <line x1="12" y1="12" x2="19" y2="7"/>
+        </symbol>
+        <symbol id="i-sparkle" viewBox="0 0 24 24">
+            <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/>
+            <path d="M18 15l.9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9z"/>
+        </symbol>
     </defs>
 </svg>
 
@@ -97,6 +120,10 @@
             <a class="nav-item" href="#dashboard" data-view="dashboard">
                 <svg><use href="#i-grid"/></svg><span>Dashboard</span>
             </a>
+            <a class="nav-item" href="#applications" data-view="applications">
+                <svg><use href="#i-briefcase"/></svg><span>Applications</span>
+                <em class="nav-badge alert" id="nav-alert-count" hidden></em>
+            </a>
             <a class="nav-item" href="#outreach" data-view="outreach">
                 <svg><use href="#i-users"/></svg><span>Outreach</span>
                 <em class="nav-badge" id="nav-outreach-count" hidden></em>
@@ -104,6 +131,9 @@
             <a class="nav-item" href="#queue" data-view="queue">
                 <svg><use href="#i-clock"/></svg><span>Queue</span>
                 <em class="nav-badge accent" id="nav-queue-count" hidden></em>
+            </a>
+            <a class="nav-item" href="#assistant" data-view="assistant">
+                <svg><use href="#i-sparkle"/></svg><span>Assistant</span>
             </a>
             <a class="nav-item" href="#templates" data-view="templates">
                 <svg><use href="#i-file"/></svg><span>Templates</span>
@@ -208,6 +238,143 @@
             </div>
         </section>
 
+        <!-- ========================== APPLICATIONS =========================== -->
+        <section class="view" id="view-applications" hidden>
+            <div id="app-empty" class="empty-hero" hidden>
+                <div class="empty-glow"></div>
+                <svg class="empty-icon"><use href="#i-radar"/></svg>
+                <h2>No applications tracked yet</h2>
+                <p>Point JobTrail at your mailbox and it will read the last month of mail,
+                    work out which platform each application went through, and start
+                    watching for assessment links and interview invites.</p>
+                <div class="empty-actions">
+                    <button class="btn primary" data-action="scan-mailbox">
+                        <svg><use href="#i-radar"/></svg> Scan my mailbox
+                    </button>
+                    <button class="btn ghost" data-action="add-application">Add one by hand</button>
+                </div>
+                <p class="note" id="app-empty-note"></p>
+            </div>
+
+            <div id="app-body" hidden>
+                <div class="tiles" id="app-tiles"></div>
+
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3>Funnel</h3>
+                                <p class="card-sub">How many applications ever reached each stage</p>
+                            </div>
+                        </div>
+                        <div id="app-funnel" class="funnel"></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3>Applications per week</h3>
+                                <p class="card-sub">Sent, and how many came back</p>
+                            </div>
+                            <div class="chart-total" id="app-trend-total"></div>
+                        </div>
+                        <div id="app-trend" class="chart-slot"></div>
+                        <div id="app-trend-legend" class="legend"></div>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="card flush">
+                        <div class="card-head padded">
+                            <div>
+                                <h3>Where you applied</h3>
+                                <p class="card-sub">Which platforms actually answer</p>
+                            </div>
+                        </div>
+                        <div class="table-wrap">
+                            <table class="table" id="platform-table">
+                                <thead>
+                                <tr>
+                                    <th>Platform</th>
+                                    <th class="num">Applied</th>
+                                    <th class="num">Replied</th>
+                                    <th class="num">Interviews</th>
+                                    <th class="num">Reply rate</th>
+                                </tr>
+                                </thead>
+                                <tbody id="platform-rows"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3>Pipeline</h3>
+                                <p class="card-sub">Where every application stands</p>
+                            </div>
+                        </div>
+                        <div id="app-pipeline" class="chart-slot"></div>
+                        <div id="app-pipeline-legend" class="legend"></div>
+                    </div>
+                </div>
+
+                <div class="grid-2">
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3>Deadlines</h3>
+                                <p class="card-sub">Assessments still open</p>
+                            </div>
+                        </div>
+                        <div id="deadline-list" class="list"></div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-head">
+                            <div>
+                                <h3>Worth a nudge</h3>
+                                <p class="card-sub">Applied, never answered, going cold</p>
+                            </div>
+                        </div>
+                        <div id="nudge-list" class="list"></div>
+                    </div>
+                </div>
+
+                <div class="toolbar">
+                    <label class="search">
+                        <svg><use href="#i-search"/></svg>
+                        <input type="search" id="app-search" placeholder="Search company, role or location…">
+                    </label>
+                    <select id="app-status-filter" class="select">
+                        <option value="">All statuses</option>
+                    </select>
+                    <select id="app-platform-filter" class="select">
+                        <option value="">All platforms</option>
+                    </select>
+                </div>
+
+                <div class="card flush">
+                    <div class="table-wrap">
+                        <table class="table" id="app-table">
+                            <thead>
+                            <tr>
+                                <th>Company &amp; role</th>
+                                <th>Platform</th>
+                                <th>Status</th>
+                                <th>Applied</th>
+                                <th>Last update</th>
+                                <th class="actions-col"></th>
+                            </tr>
+                            </thead>
+                            <tbody id="app-rows"></tbody>
+                        </table>
+                    </div>
+                    <div id="app-table-empty" class="empty-inline" hidden>Nothing matches that filter.</div>
+                </div>
+            </div>
+        </section>
+
         <!-- ============================ OUTREACH ============================= -->
         <section class="view" id="view-outreach" hidden>
             <div class="toolbar">
@@ -282,6 +449,38 @@
             </div>
         </section>
 
+        <!-- ============================ ASSISTANT ============================ -->
+        <section class="view" id="view-assistant" hidden>
+            <div class="card chat-card">
+                <div class="card-head">
+                    <div>
+                        <h3>Ask about your search</h3>
+                        <p class="card-sub">It can see your tracked applications, their stages and
+                            how long each has been quiet.</p>
+                    </div>
+                    <button class="btn ghost tiny" data-action="clear-chat">Clear thread</button>
+                </div>
+
+                <div id="chat-unavailable" class="empty-inline" hidden>
+                    No AI model is configured. Set <code>ANTHROPIC_API_KEY</code> and restart.
+                </div>
+
+                <div class="chat-log" id="chat-log"></div>
+
+                <div class="chat-suggestions" id="chat-suggestions">
+                    <button class="token" data-ask="What should I chase this week?">What should I chase this week?</button>
+                    <button class="token" data-ask="Which applications have gone quiet?">Which have gone quiet?</button>
+                    <button class="token" data-ask="Which platform is actually getting me replies?">Which platform works best?</button>
+                    <button class="token" data-ask="Do I have any assessment deadlines coming up?">Any deadlines?</button>
+                </div>
+
+                <form class="chat-input" id="chat-form" autocomplete="off">
+                    <input id="chat-question" type="text" placeholder="Ask about your applications…">
+                    <button class="btn primary" type="submit" id="chat-send">Ask</button>
+                </form>
+            </div>
+        </section>
+
         <!-- ============================ TEMPLATES ============================ -->
         <section class="view" id="view-templates" hidden>
             <div class="templates-layout">
@@ -337,6 +536,12 @@
                                 <b id="attachment-state"></b></span>
                             <input name="attachmentName" type="text"
                                    placeholder="Ranjeet_Yadav_Resume.pdf">
+                        </label>
+                        <label class="field span-2">
+                            <span>Résumé for AI decisions <em>read to ground fit scores and drafts &middot; blank reuses the attachment above</em>
+                                <b id="resume-state"></b></span>
+                            <input name="resumePath" type="text"
+                                   placeholder="C:\Users\you\Documents\Resume.pdf">
                         </label>
                     </div>
                 </div>
@@ -507,6 +712,76 @@
                     </div>
                 </div>
 
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3>Application tracking <em class="tag">reads your mail</em></h3>
+                            <p class="card-sub">Finds the jobs you applied for and warns you when a test link
+                                lands. Uses the same IMAP account as reply detection, opened read-only —
+                                nothing is ever marked as read.</p>
+                        </div>
+                        <span class="pill" id="scan-state"></span>
+                    </div>
+                    <div class="form-grid">
+                        <div class="field span-2 switch-row">
+                            <label class="switch">
+                                <input type="checkbox" name="scanEnabled"><span class="track"></span>
+                                <span class="switch-label">Keep watching my mailbox for applications</span>
+                            </label>
+                            <label class="switch">
+                                <input type="checkbox" name="alertPopups"><span class="track"></span>
+                                <span class="switch-label">Pop up for test links and interviews</span>
+                            </label>
+                        </div>
+                        <label class="field">
+                            <span>How far back to read <em>days</em></span>
+                            <input name="scanDays" type="number" min="1" max="365">
+                        </label>
+                        <label class="field">
+                            <span>Mark as ghosted after <em>days of silence</em></span>
+                            <input name="ghostAfterDays" type="number" min="3" max="180">
+                        </label>
+                        <label class="field span-2">
+                            <span>Folders to read <em>comma separated &middot; Gmail archives live in [Gmail]/All Mail</em></span>
+                            <input name="scanFolders" type="text" placeholder="INBOX">
+                        </label>
+                    </div>
+                    <div class="card-foot">
+                        <button class="btn ghost" type="button" data-action="list-folders">List my folders</button>
+                        <button class="btn ghost" type="button" data-action="scan-mailbox">Scan now</button>
+                        <span class="note" id="scan-hint"></span>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-head">
+                        <div>
+                            <h3>AI triage <em class="tag">optional &middot; costs money</em></h3>
+                            <p class="card-sub">The keyword rules handle most mail on their own. When they
+                                cannot tell a real application from a "jobs you may like" digest, this asks
+                                a model to settle it — and rescues job mail written in wording the rules
+                                do not know.</p>
+                        </div>
+                        <span class="pill" id="ai-state"></span>
+                    </div>
+                    <div class="form-grid">
+                        <div class="field span-2 switch-row">
+                            <label class="switch">
+                                <input type="checkbox" name="aiEnabled"><span class="track"></span>
+                                <span class="switch-label">Ask a model about mail the rules cannot settle</span>
+                            </label>
+                        </div>
+                        <label class="field">
+                            <span>Most calls per scan <em>hard ceiling on spend</em></span>
+                            <input name="aiMaxCallsPerScan" type="number" min="0" max="2000">
+                        </label>
+                    </div>
+                    <p class="note" id="ai-model-note"></p>
+                    <p class="note">Only the ambiguous messages are sent, and only their sender, subject
+                        and body text — never your credentials or attachments. Turn this off and scanning
+                        keeps working exactly as it does today, on rules alone.</p>
+                </div>
+
                 <div class="sticky-save">
                     <span id="settings-dirty" class="dirty-hint"></span>
                     <button class="btn primary" type="submit">Save settings</button>
@@ -521,6 +796,8 @@
 
 <div class="modal-scrim" id="modal-scrim" hidden></div>
 <div class="modal" id="modal" hidden></div>
+
+<div class="alert-pop" id="alert-pop" hidden></div>
 
 <div class="toasts" id="toasts"></div>
 <div class="tooltip" id="tooltip" hidden></div>

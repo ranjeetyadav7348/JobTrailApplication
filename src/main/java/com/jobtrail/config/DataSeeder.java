@@ -61,12 +61,14 @@ public class DataSeeder {
         templates.save(template("Gentle nudge", TemplateKind.FOLLOW_UP, true,
                 "Following up on {{role}}",
                 """
-                <p>Hi {{first_name}},</p>
-                <p>Just floating this back to the top of your inbox in case it got buried. \
-                I am still very interested in the <strong>{{role}}</strong> role at {{company}}.</p>
-                <p>If the position is filled or the timing is off, a one-line reply is genuinely \
-                fine — I would rather know than keep wondering.</p>
-                <p>Best,<br>{{my_name}}</p>
+                <p>Dear Hiring Team,</p>
+                <p>I hope you are doing well.</p>
+                <p>I wanted to follow up regarding my application for the position at your \
+                organization. I remain very interested in the opportunity and would appreciate any \
+                update you can share regarding the status of my application.</p>
+                <p>I am excited about the possibility of contributing to your team and would be \
+                happy to provide any additional information if needed.</p>
+                <p>Thank you for your time and consideration. I look forward to hearing from you.</p>
                 """));
 
         templates.save(template("Last follow-up", TemplateKind.FOLLOW_UP, false,

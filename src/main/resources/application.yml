@@ -2,11 +2,15 @@ spring:
   application:
     name: JobTrail
 
+  # Credentials come from the environment, never from this file. Local values
+  # belong in ./config/application.yml, which is git-ignored and overrides this
+  # one automatically — no profile flag needed. In Kubernetes they arrive as
+  # environment variables projected from a Secret.
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:jobtrail}
     driver-class-name: org.postgresql.Driver
     username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:ranjeet}
+    password: ${DB_PASSWORD:}
 
   jpa:
     hibernate:
@@ -29,13 +33,78 @@ spring:
   mail:
     host: ${SMTP_HOST:smtp.gmail.com}
     port: ${SMTP_PORT:587}
-    username: ${SMTP_USERNAME:yadavranjeet060@gmail.com}
-    password: ${SMTP_PASSWORD:psrw bthi oymz xflf}
+    username: ${SMTP_USERNAME:}
+    password: ${SMTP_PASSWORD:}
+
+  # Spring AI. Swapping provider means swapping the starter in pom.xml and this
+  # block — no application code changes, because everything goes through
+  # ChatClient. Without an API key no chat model is created at all, and both the
+  # scanner and the assistant degrade cleanly rather than failing.
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY:}
+      chat:
+        options:
+          model: ${AI_MODEL:claude-opus-5}
+          max-tokens: 2048
+    chat:
+      memory:
+        repository:
+          jdbc:
+            # Spring AI owns these tables, not Hibernate, so it creates them itself.
+            initialize-schema: always
+    # Embeddings run locally on ONNX — no key, no calls out. The default model
+    # is all-MiniLM-L6-v2 (384 dimensions), downloaded once into the cache
+    # directory below and read from disk on every boot after that.
+    #
+    # The auto-configuration is switched off and the bean is built by
+    # LocalEmbeddingConfiguration instead. Not a preference: the auto-configured
+    # bean loads a native library while the context is refreshing, and on a
+    # platform without that library the failure is fatal to startup. Building it
+    # ourselves lets a missing library degrade retrieval instead of stopping the
+    # app. See that class for the platform notes.
+    model:
+      embedding: none
+    embedding:
+      transformer:
+        cache:
+          directory: ${AI_MODEL_CACHE:.ai-model-cache}
+    # Nothing is sent anywhere until a key exists; this keeps that explicit.
+    retry:
+      max-attempts: 2
 
 server:
   port: ${PORT:8080}
   error:
     include-message: always
+  shutdown: graceful
+
+# Give Kubernetes time to take the pod out of the load balancer and let
+# in-flight requests finish, rather than cutting a send mid-flight.
+lifecycle:
+  timeout-per-shutdown-phase: 25s
+
+# Only the health endpoints are exposed. The others (env, beans, configprops,
+# heapdump) would leak configuration — including credential *names* and, for
+# some, values — to anything that can reach the pod.
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      # Liveness and readiness become separately pollable, which is the whole
+      # point: readiness may flap when the database blips, but that must not
+      # get the container killed and restarted.
+      probes:
+        enabled: true
+      show-details: never
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
 
 jobtrail:
   # Hard floor for the gap between two real sends. The UI cannot go below this.
@@ -44,6 +113,18 @@ jobtrail:
   dispatcher-poll-ms: 1000
   # Base URL used to build open-tracking pixel links.
   public-base-url: ${PUBLIC_BASE_URL:http://localhost:8080}
+
+  rag:
+    # Words per chunk, and the overlap carried into the next one. The overlap
+    # exists so a fact split across a boundary ("Kafka" ending one chunk,
+    # "3 years" starting the next) is still retrievable whole from one of them.
+    chunk-words: 180
+    chunk-overlap-words: 40
+    # Chunks handed to the model per decision. Enough to answer from, small
+    # enough that the evidence stays readable and the prompt stays cheap.
+    top-k: 8
+    # How far down each retrieval arm the fusion looks before combining.
+    candidates-per-arm: 40
 
 logging:
   level:
