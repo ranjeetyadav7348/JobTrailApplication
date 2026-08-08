@@ -1,101 +1,177 @@
-# Deploying JobTrail to k3s on EC2
+# Deploying JobTrail to Amazon EKS
 
-Docker image → GitHub Container Registry → single-node k3s on one EC2 instance,
-driven by GitHub Actions.
+Push to `main` → tests → container image to GHCR → deployed to EKS by GitHub
+Actions. No SSH, and no AWS keys stored anywhere.
 
-Everything in `k8s/` and `.github/workflows/` is already written. What follows is
-the part that needs your AWS account and your credentials.
+Everything in `k8s/` and `.github/workflows/deploy.yml` is written. What follows
+is the part that needs your AWS account.
 
 ---
 
 ## 0. Rotate the leaked Gmail app password — do this first
 
-The app password `psrw bthi oymz xflf` was committed to this repository in commit
-`38a63f0`. It is in git history, so deleting it from the working tree does not
-make it safe; anyone who has ever cloned or forked the repo has it.
+The app password `psrw bthi oymz xflf` was committed in `38a63f0`. It is in git
+history, so deleting it from the working tree does not make it safe — anyone who
+cloned or forked the repo has it.
 
-1. Go to <https://myaccount.google.com/apppasswords> and **revoke** it.
-2. Generate a new one. You will paste it into a Kubernetes Secret in step 4 —
-   not into any file in this repo.
+1. Revoke it at <https://myaccount.google.com/apppasswords>.
+2. Generate a new one. It goes into a Kubernetes Secret in step 5, never into a
+   file in this repo.
 
-The same applies to the Postgres password that was in `application.yml`. The new
-one is generated in step 4 and never leaves the cluster.
+The Postgres password that was in `application.yml` is replaced in step 5 too.
 
-> Rewriting git history (`git filter-repo`, BFG) removes the string from the repo
-> but cannot un-share it. Revoking is the part that actually matters; rewriting is
-> optional tidying.
+> Rewriting history (`git filter-repo`, BFG) removes the string but cannot
+> un-share it. Revoking is the part that matters.
 
 ---
 
-## 1. Launch the EC2 instance
-
-| Setting | Value | Why |
-|---|---|---|
-| AMI | Ubuntu Server 24.04 LTS (**x86_64**) | The image is `linux/amd64`. An arm64 instance will fail to pull it. |
-| Type | `t3.medium` (2 vCPU, 4 GiB) | The app is capped at 1.5 GiB and Postgres at 512 MiB. `t3.small` (2 GiB) leaves nothing for k3s itself and the app will be OOM-killed. |
-| Storage | 20 GiB gp3 | Holds the OS, container images and the Postgres volume. |
-| Key pair | Create or reuse one | The private key becomes the `EC2_SSH_KEY` GitHub secret. |
-
-**Security group** — inbound only:
-
-| Port | Source | Notes |
-|---|---|---|
-| 22 | Your IP | SSH, and how GitHub Actions deploys. See the note below. |
-| 80 | **Your IP** | The app has no login of its own. Anyone who can reach it can read your application history and send mail through your SMTP credentials. Do not open this to `0.0.0.0/0`. |
-
-> **GitHub-hosted runners have changing IPs**, so port 22 restricted to your own
-> IP will block the deploy job. Two options: allow GitHub's published Actions IP
-> ranges (from <https://api.github.com/meta>), or — simpler and tighter — install
-> a self-hosted runner on the instance and drop the SSH step entirely. For a
-> personal tool, temporarily widening 22 during a deploy is also defensible; just
-> don't leave it open.
-
----
-
-## 2. Install k3s
-
-SSH in, then:
+## 1. Prerequisites
 
 ```bash
-curl -sfL https://get.k3s.io | sh -
-
-# Confirm the node is Ready (takes ~30s)
-sudo k3s kubectl get nodes
-
-# Let your user run kubectl without sudo
-mkdir -p ~/.kube
-sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-sudo chown "$USER:$USER" ~/.kube/config
-echo 'export KUBECONFIG=~/.kube/config' >> ~/.bashrc && source ~/.bashrc
-
-kubectl get nodes
+aws --version       # v2
+eksctl version      # >= 0.190
+kubectl version --client
+aws sts get-caller-identity   # confirms you're authenticated
 ```
 
-k3s bundles Traefik (the ingress controller) and the `local-path` storage
-provisioner, so there is nothing else to install. `local-path` writes to
-`/var/lib/rancher/k3s/storage`, which is on the instance's EBS root volume — that
-is what makes the Postgres volume persist across pod restarts and reboots.
-
----
-
-## 3. Create the namespace
+Set these once for the commands below:
 
 ```bash
-kubectl apply -f https://raw.githubusercontent.com/ranjeetyadav7348/JobTrailApplication/main/k8s/00-namespace.yaml
-# or, once the repo is on the box: kubectl apply -f k8s/00-namespace.yaml
+export AWS_REGION=ap-south-1
+export CLUSTER=jobtrail
+export ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
+export GH_REPO=ranjeetyadav7348/JobTrailApplication
 ```
 
 ---
 
-## 4. Create the secrets
-
-These are created imperatively so the values never exist in a file. Run on the
-EC2 box.
+## 2. Create the cluster
 
 ```bash
-# Database. Generate a strong password rather than reusing the old one.
+eksctl create cluster \
+  --name "$CLUSTER" \
+  --region "$AWS_REGION" \
+  --version 1.31 \
+  --nodegroup-name workers \
+  --node-type t3.medium \
+  --nodes 2 --nodes-min 2 --nodes-max 3 \
+  --managed \
+  --with-oidc
+```
+
+Takes roughly 15–20 minutes.
+
+`--with-oidc` matters: it creates the cluster's IAM OIDC provider, which both the
+EBS CSI driver and the GitHub Actions role depend on. Adding it later is possible
+but fiddlier.
+
+`t3.medium` because the app is capped at 1.5 GiB and Postgres at 512 MiB — a
+`t3.small` (2 GiB) leaves nothing for the kubelet and system pods.
+
+---
+
+## 3. Install the EBS CSI driver
+
+EKS cannot provision disks without it. Skip this and the Postgres PVC sits
+`Pending` for ever, with nothing in the app's own logs to explain why.
+
+```bash
+eksctl create iamserviceaccount \
+  --name ebs-csi-controller-sa \
+  --namespace kube-system \
+  --cluster "$CLUSTER" --region "$AWS_REGION" \
+  --role-name "AmazonEKS_EBS_CSI_DriverRole_${CLUSTER}" \
+  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+  --role-only --approve
+
+eksctl create addon \
+  --name aws-ebs-csi-driver \
+  --cluster "$CLUSTER" --region "$AWS_REGION" \
+  --service-account-role-arn "arn:aws:iam::${ACCOUNT_ID}:role/AmazonEKS_EBS_CSI_DriverRole_${CLUSTER}" \
+  --force
+
+# Verify
+kubectl -n kube-system get pods -l app.kubernetes.io/name=aws-ebs-csi-driver
+```
+
+---
+
+## 4. Let GitHub Actions reach the cluster
+
+Two halves: AWS must trust GitHub's OIDC provider, and the cluster must
+authorise the resulting role.
+
+**4a — the IAM trust.** If you have never used GitHub OIDC in this account:
+
+```bash
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1
+```
+
+**4b — the deploy role.** The trust policy is scoped to this repository *and* the
+`main` branch, so a workflow on a fork or a side branch cannot assume it.
+
+```bash
+cat > /tmp/trust.json <<JSON
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": { "Federated": "arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com" },
+    "Action": "sts:AssumeRoleWithWebIdentity",
+    "Condition": {
+      "StringEquals": { "token.actions.githubusercontent.com:aud": "sts.amazonaws.com" },
+      "StringLike":   { "token.actions.githubusercontent.com:sub": "repo:${GH_REPO}:ref:refs/heads/main" }
+    }
+  }]
+}
+JSON
+
+aws iam create-role \
+  --role-name JobTrailGitHubDeploy \
+  --assume-role-policy-document file:///tmp/trust.json
+
+# Only needs to describe the cluster; all real authority comes from the
+# Kubernetes RBAC binding in 4c.
+aws iam put-role-policy \
+  --role-name JobTrailGitHubDeploy \
+  --policy-name DescribeCluster \
+  --policy-document '{
+    "Version":"2012-10-17",
+    "Statement":[{"Effect":"Allow","Action":"eks:DescribeCluster","Resource":"*"}]
+  }'
+```
+
+**4c — authorise it inside the cluster.** IAM alone is not enough; EKS keeps its
+own mapping.
+
+```bash
+eksctl create iamidentitymapping \
+  --cluster "$CLUSTER" --region "$AWS_REGION" \
+  --arn "arn:aws:iam::${ACCOUNT_ID}:role/JobTrailGitHubDeploy" \
+  --group system:masters \
+  --username github-actions
+
+# Verify
+eksctl get iamidentitymapping --cluster "$CLUSTER" --region "$AWS_REGION"
+```
+
+> `system:masters` is cluster-admin. Fine to start; to tighten it later, bind a
+> Role scoped to the `jobtrail` namespace instead and drop the group.
+
+---
+
+## 5. Create the secrets
+
+Created imperatively so the values never exist in a file.
+
+```bash
+kubectl apply -f k8s/00-namespace.yaml
+
 DB_PASS="$(openssl rand -base64 24)"
-echo "Postgres password (save this somewhere safe): $DB_PASS"
+echo "Postgres password (save this): $DB_PASS"
 
 kubectl -n jobtrail create secret generic jobtrail-secrets \
   --from-literal=DB_USERNAME='postgres' \
@@ -105,23 +181,15 @@ kubectl -n jobtrail create secret generic jobtrail-secrets \
   --from-literal=ANTHROPIC_API_KEY='<sk-ant-... or leave empty>'
 ```
 
-`ANTHROPIC_API_KEY` is optional. Without it the app runs normally; the assistant
-and the AI mail triage report themselves unavailable.
+`ANTHROPIC_API_KEY` is optional — without it the app runs and the AI features
+report themselves unavailable.
 
-**The résumé** — copy it to the instance, then mount it as a Secret:
+**The résumé**, mounted read-only at `/app/resume/resume.pdf`:
 
 ```bash
-# From your laptop
-scp -i <key.pem> ~/Documents/resume/Ranjeet_Java_AI_4Exp.pdf ubuntu@<EC2_IP>:~/resume.pdf
-
-# On the instance
 kubectl -n jobtrail create secret generic jobtrail-resume \
-  --from-file=resume.pdf=/home/ubuntu/resume.pdf
-rm ~/resume.pdf
+  --from-file=resume.pdf="$HOME/Documents/resume/Ranjeet_Java_AI_4Exp.pdf"
 ```
-
-It lands read-only at `/app/resume/resume.pdf`, which is what `RESUME_PATH` in
-the image points at.
 
 **Image pull** — only if the GHCR package is private:
 
@@ -129,81 +197,96 @@ the image points at.
 kubectl -n jobtrail create secret docker-registry ghcr-pull \
   --docker-server=ghcr.io \
   --docker-username='ranjeetyadav7348' \
-  --docker-password='<a GitHub PAT with read:packages>'
+  --docker-password='<GitHub PAT with read:packages>'
 ```
 
-If you make the package public instead (Package settings → Change visibility),
-delete the `imagePullSecrets` block from `k8s/20-app.yaml`.
+Making the package public instead (Package settings → Change visibility) is
+simpler; if you do, delete the `imagePullSecrets` block from `k8s/20-app.yaml`.
 
 ---
 
-## 5. Add the GitHub repository secrets
+## 6. Lock down who can reach it
 
-Repo → Settings → Secrets and variables → Actions:
+`k8s/30-loadbalancer.yaml` ships with `loadBalancerSourceRanges` set to a
+documentation-only address that matches nothing — it fails closed, so the first
+deploy is unreachable until you edit it. That is deliberate: the app has **no
+login**, and anyone who can reach it can read your application history and send
+mail through your SMTP credentials.
+
+```bash
+curl -s ifconfig.me    # your public IP
+```
+
+Put `<that-ip>/32` in that file and commit.
+
+---
+
+## 7. GitHub repository configuration
+
+Settings → Secrets and variables → Actions.
+
+**Variables** (not secrets — these are not sensitive):
+
+| Variable | Value |
+|---|---|
+| `AWS_REGION` | `ap-south-1` |
+| `EKS_CLUSTER` | `jobtrail` |
+
+**Secret:**
 
 | Secret | Value |
 |---|---|
-| `EC2_HOST` | The instance's public IP or DNS name |
-| `EC2_USER` | `ubuntu` |
-| `EC2_SSH_KEY` | The **entire** private key file, `-----BEGIN` line through `-----END` line |
-| `EC2_HOST_KEY` | Output of `ssh-keyscan -H <EC2_IP>` — pins the host so the deploy cannot be redirected to another machine |
+| `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::<account>:role/JobTrailGitHubDeploy` |
 
-No AWS keys are needed: the deploy talks to the instance over SSH, not to the AWS
-API.
+No AWS access keys. The role is assumed through OIDC and the credentials last
+minutes.
 
-Also create an Environment named `production` (Settings → Environments) since the
-deploy job references it. Add a required reviewer there if you want a manual gate.
+Also create an Environment named `production` (Settings → Environments), which
+the deploy job references. Add a required reviewer there for a manual gate.
 
 ---
 
-## 6. Deploy
+## 8. Deploy
 
 ```bash
 git add -A
-git commit -m "Add Docker, Kubernetes and CI deployment"
+git commit -m "Deploy to EKS via GitHub Actions"
 git push origin main
 ```
 
-Watch it under the repo's Actions tab. The workflow runs tests, builds and pushes
-a `linux/amd64` image tagged with the commit SHA, then applies the manifests and
-waits for the rollout. If the pod never becomes ready the job fails and prints the
-pod status, recent events and the last 80 log lines.
+Actions runs tests, builds and pushes a `linux/amd64` image tagged with the
+commit SHA, applies the manifests, and waits for the rollout. If the pod never
+becomes ready the job fails, rolls back to the previous revision, and prints pod
+status, PVC state, events and logs.
 
-First deploy takes a few minutes — Postgres initialises and Hibernate creates the
-schema.
-
----
-
-## 7. Reach the app
-
-`jobtrail.local` is a placeholder hostname. On the machine you browse from:
-
-```
-# /etc/hosts   (C:\Windows\System32\drivers\etc\hosts on Windows)
-<EC2_PUBLIC_IP>   jobtrail.local
-```
-
-Then open <http://jobtrail.local>. With a real domain, point an A record at the
-instance and change `host:` in `k8s/30-ingress.yaml` and `PUBLIC_BASE_URL` in
-`k8s/20-app.yaml`.
-
-`PUBLIC_BASE_URL` matters beyond convenience: it builds the open-tracking pixel
-URLs embedded in outgoing email, so it has to be an address the recipient's mail
-client can resolve. Left as `jobtrail.local`, tracking silently records nothing.
+First deploy takes ~10 minutes: EBS volume provisioning, Postgres init, Hibernate
+schema creation, and NLB registration.
 
 ---
 
-## 8. Index the résumé
+## 9. Finish the two chicken-and-egg settings
 
-Once running, build the knowledge base the AI decisions read from:
+The load balancer hostname does not exist until after the first deploy.
 
 ```bash
-curl -X POST http://jobtrail.local/api/knowledge/reindex
-curl http://jobtrail.local/api/decisions/status
+kubectl -n jobtrail get svc jobtrail-lb \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
-`status` should report a non-zero `resumeChunks`, and — unlike on a Windows/ARM
-laptop — `embeddingsReady: true`. The embedding model's native libraries ship for
+Put it in `PUBLIC_BASE_URL` in `k8s/20-app.yaml` and push again. Until then the
+app works but open-tracking pixels record nothing, because they are built from
+that URL and the recipient's mail client has to resolve it.
+
+Then index the résumé:
+
+```bash
+BASE="http://$(kubectl -n jobtrail get svc jobtrail-lb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+curl -X POST "$BASE/api/knowledge/reindex"
+curl "$BASE/api/decisions/status"
+```
+
+`status` should report non-zero `resumeChunks` and — unlike on your laptop —
+`embeddingsReady: true`. The embedding model's native libraries ship for
 `linux/amd64` but not `win-aarch64`, so **containerising is what switches hybrid
 retrieval on**. Locally it degrades to keyword-only search.
 
@@ -215,24 +298,17 @@ detected by hash and skipped without re-embedding.
 ## Operations
 
 ```bash
-# Logs
+aws eks update-kubeconfig --region "$AWS_REGION" --name "$CLUSTER"
+
 kubectl -n jobtrail logs -f deployment/jobtrail
-
-# Pod and volume status
-kubectl -n jobtrail get pods,pvc
-
-# Restart without a redeploy
+kubectl -n jobtrail get pods,pvc,svc
 kubectl -n jobtrail rollout restart deployment/jobtrail
-
-# Roll back to the previous image
 kubectl -n jobtrail rollout undo deployment/jobtrail
 
-# Deploy a specific past commit: re-run that commit's workflow from the Actions
-# tab, or set the image directly:
+# Deploy a specific commit
 kubectl -n jobtrail set image deployment/jobtrail \
   jobtrail=ghcr.io/ranjeetyadav7348/jobtrailapplication:<sha>
 
-# Database shell
 kubectl -n jobtrail exec -it postgres-0 -- psql -U postgres -d jobtrail
 ```
 
@@ -248,23 +324,40 @@ gunzip -c jobtrail-<stamp>.sql.gz | \
 
 ## Things worth knowing
 
-**One replica, and a `Recreate` strategy — both deliberate.** The app runs its
-send dispatcher, IMAP poller and follow-up scheduler in-process. A second replica
-would poll the same queue and mailbox and send duplicate emails, from a tool whose
-purpose is not annoying employers. `RollingUpdate` has the same problem for a few
-seconds per deploy, which is why the strategy is `Recreate`. Scaling out safely
-means moving the schedulers behind a database lock (ShedLock or similar) first.
+**One replica, `Recreate` strategy — both deliberate.** The app runs its send
+dispatcher, IMAP poller and follow-up scheduler in-process. A second replica
+would poll the same queue and mailbox and send duplicate emails, from a tool
+whose purpose is not annoying employers. `RollingUpdate` has the same problem for
+a few seconds per deploy, which is why the strategy is `Recreate`. Scaling out
+safely means putting the schedulers behind a database lock (ShedLock) first —
+until then, do not raise `replicas`.
 
-**Backups are yours to run.** The Postgres volume survives pod restarts and
-reboots, but not the instance being terminated. `k8s/40-backup.yaml` handles that;
-it needs `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (scoped to one bucket) added
-to `jobtrail-secrets`, and `BACKUP_S3_URI` added to the ConfigMap. The workflow
-applies it only when those keys are present.
+**The EBS volume is `Retain`.** Deleting the PVC or the namespace leaves the
+volume behind rather than destroying your application history. The cost is that a
+genuinely unwanted volume must be deleted by hand in the EC2 console.
 
-**Rough monthly cost:** `t3.medium` on-demand ≈ $30, 20 GiB gp3 ≈ $1.60, plus
-egress. A 1-year Compute Savings Plan takes the instance to roughly $19. GHCR is
-free for public images. Stopping the instance when unused costs only the EBS.
+**Backups are still worth it.** EBS survives node replacement; it does not
+survive a bad migration or an accidental delete. `k8s/40-backup.yaml` needs
+`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (scoped to one bucket) added to
+`jobtrail-secrets` and `BACKUP_S3_URI` in the ConfigMap; the workflow applies it
+only when those exist.
 
-**There is no authentication.** Keep the security group restricted to your own IP.
-Before exposing this more widely, add TLS (cert-manager and a real domain) and an
-auth layer — Traefik basic-auth middleware is the cheapest credible option.
+**Cost, roughly, per month:**
+
+| Item | ~USD |
+|---|---|
+| EKS control plane | 73 |
+| 2 × t3.medium | 60 |
+| NLB | 16 |
+| EBS 8 GiB gp3 + snapshots | 1 |
+| **Total** | **~150** |
+
+That is substantially more than the ~$32 a single-node k3s box would cost for
+identical functionality. Worth it if the AWS experience is part of the point;
+if not, `eksctl delete cluster --name "$CLUSTER"` and the k3s manifests are in
+this repo's history. Scaling the node group to zero outside working hours cuts
+the node share but not the control-plane fee.
+
+**There is no authentication.** Keep `loadBalancerSourceRanges` restricted. The
+real fix is an ALB Ingress with ACM for TLS and Cognito or OIDC in front — see
+the note at the bottom of `k8s/30-loadbalancer.yaml`.

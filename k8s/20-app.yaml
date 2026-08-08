@@ -8,9 +8,16 @@ data:
   DB_PORT: "5432"
   DB_NAME: "jobtrail"
   TZ: "Asia/Kolkata"
-  # Used to build the open-tracking pixel URLs, so it has to be the address a
-  # recipient's mail client can actually reach — not the cluster-internal one.
-  PUBLIC_BASE_URL: "http://jobtrail.local"
+  # Used to build the open-tracking pixel URLs embedded in outgoing email, so it
+  # has to be an address the RECIPIENT's mail client can resolve — not a
+  # cluster-internal name.
+  #
+  # Chicken-and-egg on first deploy: the NLB hostname does not exist until the
+  # LoadBalancer Service is created. Deploy once, read the hostname with
+  #   kubectl -n jobtrail get svc jobtrail-lb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+  # then set it here and redeploy. Until then open-tracking records nothing —
+  # everything else works.
+  PUBLIC_BASE_URL: "http://REPLACE-WITH-NLB-HOSTNAME"
 ---
 apiVersion: v1
 kind: Service
