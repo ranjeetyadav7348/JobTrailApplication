@@ -67,7 +67,9 @@
       "PowerShell(Get-CimInstance *)",
       "Bash(curl -s -f -o /dev/null http://localhost:8080/api/settings)",
       "Bash(timeout 700 ./mvnw.cmd -q test)",
-      "PowerShell($env:PGPASSWORD='ranjeet'; $psql = Get-Command psql -ErrorAction SilentlyContinue; if \\($psql\\) { & psql -U postgres -d jobtrail -t -c \"select table_name from information_schema.tables where table_schema='public' and table_name like '%chat%';\" } else { \"psql not on PATH\" })"
+      "PowerShell($env:PGPASSWORD='ranjeet'; $psql = Get-Command psql -ErrorAction SilentlyContinue; if \\($psql\\) { & psql -U postgres -d jobtrail -t -c \"select table_name from information_schema.tables where table_schema='public' and table_name like '%chat%';\" } else { \"psql not on PATH\" })",
+      "Bash(git update-index *)",
+      "Bash(npx --yes js-yaml .github/workflows/deploy.yml)"
     ]
   }
 }

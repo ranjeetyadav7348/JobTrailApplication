@@ -34,6 +34,13 @@ jobs:
           distribution: temurin
           cache: maven
 
+      # The executable bit is stored in the git index, and a Windows clone with
+      # core.filemode=false does not record it — so mvnw can arrive here as 0644
+      # and `./mvnw` fails with "Permission denied". The bit is set in the index
+      # (100755); this is belt-and-braces against a future commit dropping it.
+      - name: Make the Maven wrapper executable
+        run: chmod +x ./mvnw
+
       # Runs on in-memory H2, and the test profile sets
       # spring.ai.model.embedding=none so no model is downloaded. No services,
       # no secrets, no network.
