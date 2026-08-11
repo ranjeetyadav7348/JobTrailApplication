@@ -1,21 +1,11 @@
-# PostgreSQL, in-cluster, on an EBS volume via the CSI driver.
+# PostgreSQL, in-cluster, on a persistent volume.
 #
-# On EKS the volume is a real EBS disk with its own lifecycle, independent of any
-# node: if a node is replaced, the volume detaches and re-attaches to the
-# replacement. That is a genuine improvement over the single-node k3s setup,
-# where the data lived on the instance's own disk and an instance replacement
-# lost it.
-#
-# Two constraints follow from EBS and both are handled here:
-#
-#   * A volume lives in ONE Availability Zone and attaches only to a node in
-#     that zone. The gp3 StorageClass uses WaitForFirstConsumer so the volume is
-#     created where the pod actually scheduled.
-#   * A gp3 volume attaches to one node at a time (ReadWriteOnce), which suits a
-#     single Postgres replica and rules out scaling it out.
-#
-# The pg_dump CronJob in 40-backup.yaml is still worth keeping: EBS protects
-# against node loss, not against a bad migration or an accidental delete.
+# On single-node k3s the default `local-path` StorageClass writes to
+# /var/lib/rancher/k3s/storage on the node — which on EC2 is the instance's EBS
+# root volume. So the data is already EBS-backed and survives pod restarts and
+# instance reboots without the EBS CSI driver. What it does NOT survive is the
+# instance being terminated and replaced, which is exactly why the pg_dump
+# CronJob in 40-backup.yaml exists.
 apiVersion: v1
 kind: Service
 metadata:
@@ -105,7 +95,7 @@ spec:
         name: data
       spec:
         accessModes: ["ReadWriteOnce"]
-        storageClassName: gp3
+        storageClassName: local-path
         resources:
           requests:
             storage: 8Gi

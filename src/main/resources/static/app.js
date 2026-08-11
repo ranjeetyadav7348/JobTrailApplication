@@ -102,6 +102,24 @@
         return `<span class="pill s-${status}"><i class="dot"></i>${esc(STATUS_LABEL[status] || status)}</span>`;
     }
 
+    /* ------------------------------ features ----------------------------- */
+
+    /**
+     * Alert popups and desktop notifications, switched off for now.
+     *
+     * The alerts themselves are untouched: the server still detects and stores
+     * them, and the nav badge still counts the unread ones. Only the
+     * interrupting surface is disabled — so nothing is lost, and flipping this
+     * back to true (plus restoring the Settings toggle in index.html) brings the
+     * feature back exactly as it was. showAlertPopup() and notifyDesktop() are
+     * deliberately left in place rather than deleted for the same reason.
+     *
+     * Worth knowing while this is off: the popup was the only place alert
+     * *content* was ever shown, so the badge now counts alerts that cannot be
+     * read anywhere in the UI.
+     */
+    const ALERT_POPUPS_ENABLED = false;
+
     /* ------------------------------- state ------------------------------- */
 
     const state = {
@@ -892,7 +910,7 @@
         badge.hidden = feed.unread === 0;
         badge.textContent = feed.unread;
 
-        if (!feed.popupsEnabled) return;
+        if (!ALERT_POPUPS_ENABLED || !feed.popupsEnabled) return;
         feed.alerts
             .filter(a => a.popup && !state.shownAlerts.has(a.id))
             .forEach(a => {

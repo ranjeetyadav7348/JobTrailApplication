@@ -12,12 +12,10 @@ data:
   # has to be an address the RECIPIENT's mail client can resolve — not a
   # cluster-internal name.
   #
-  # Chicken-and-egg on first deploy: the NLB hostname does not exist until the
-  # LoadBalancer Service is created. Deploy once, read the hostname with
-  #   kubectl -n jobtrail get svc jobtrail-lb -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-  # then set it here and redeploy. Until then open-tracking records nothing —
-  # everything else works.
-  PUBLIC_BASE_URL: "http://REPLACE-WITH-NLB-HOSTNAME"
+  # Unlike the EKS setup, there is no chicken-and-egg here: the node's public IP
+  # or DNS name exists before the first deploy, so this can be set up front. Use
+  # the instance's public DNS, or a real domain pointed at it.
+  PUBLIC_BASE_URL: "http://jobtrail.local"
 ---
 apiVersion: v1
 kind: Service
@@ -102,7 +100,10 @@ spec:
                   key: DB_USERNAME
       containers:
         - name: jobtrail
-          image: ghcr.io/OWNER/REPO:latest # replaced by CI at deploy time
+          # CI overwrites this with the immutable SHA tag via `kubectl set image`
+          # immediately after applying. `latest` is only the value a hand-run
+          # `kubectl apply` would use.
+          image: ghcr.io/ranjeetyadav7348/jobtrailapplication:latest
           imagePullPolicy: Always
           ports:
             - name: http

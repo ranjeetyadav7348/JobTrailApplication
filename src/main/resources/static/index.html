@@ -728,10 +728,15 @@
                                 <input type="checkbox" name="scanEnabled"><span class="track"></span>
                                 <span class="switch-label">Keep watching my mailbox for applications</span>
                             </label>
-                            <label class="switch">
-                                <input type="checkbox" name="alertPopups"><span class="track"></span>
-                                <span class="switch-label">Pop up for test links and interviews</span>
-                            </label>
+                            <!-- Alert popups are switched off for now. The toggle is
+                                 removed rather than defaulted off so it cannot be
+                                 turned back on from the UI while the feature is
+                                 dormant; see app.js pollAlerts(). The stored
+                                 alertPopups setting is left untouched — SettingsForm
+                                 sends null for a missing field and SettingsService
+                                 keeps the existing value — so restoring this toggle
+                                 brings back whatever was last chosen. -->
+
                         </div>
                         <label class="field">
                             <span>How far back to read <em>days</em></span>

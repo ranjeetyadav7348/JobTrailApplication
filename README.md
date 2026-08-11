@@ -43,6 +43,17 @@ Hibernate builds the schema itself, so there is nothing else to run.
 Point the app somewhere else with `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USERNAME`
 and `DB_PASSWORD` if the defaults above do not match your setup.
 
+**Credentials never live in this repository.** `application.yml` reads them from
+the environment with blank defaults; for local development put real values in
+`config/application.yml`, which is git-ignored and which Spring Boot loads ahead
+of the packaged configuration with no profile flag needed.
+
+> **Deploying?** See **[DEPLOY.md](DEPLOY.md)** — containerised, on Kubernetes
+> (k3s) on a single EC2 instance, deployed by GitHub Actions on every push to
+> `main`. It starts from what this app needs of a cluster (single instance,
+> persistent Postgres, x86_64 for the embedding model) and derives the
+> configuration from that.
+
 The dashboard starts empty; **Load demo data** fills it with eight sample
 threads so you can see the charts and the pipeline working. Every demo address
 uses the reserved `.example` domain, so none of it can ever reach a real

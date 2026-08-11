@@ -10,12 +10,10 @@ on:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  EKS_CLUSTER: ${{ vars.EKS_CLUSTER }}
 
 # A second push while a deploy is in flight would race the first onto the same
 # single-replica Deployment. Queue instead — and never cancel mid-deploy, which
-# could leave the rollout half-applied.
+# could leave the old pod terminated and the new one never applied.
 concurrency:
   group: deploy-${{ github.ref }}
   cancel-in-progress: false
@@ -84,9 +82,9 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
-          # EKS managed node groups here run x86_64. Pinned explicitly so the
-          # architecture is a deliberate choice, not a property of whichever
-          # runner happened to pick up the job.
+          # The EC2 node is x86_64, and the embedding model's native libraries
+          # are amd64-only. Pinned explicitly so the architecture is a deliberate
+          # choice, not a property of whichever runner picked up the job.
           platforms: linux/amd64
           push: true
           # The immutable SHA tag is what gets deployed, so rolling back is just
@@ -98,108 +96,126 @@ jobs:
           cache-to: type=gha,mode=max
 
   deploy:
-    name: Deploy to EKS
+    name: Deploy to k3s on EC2
     needs: build
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     environment: production
-    permissions:
-      # Required for GitHub's OIDC provider to mint the token AWS exchanges for
-      # temporary credentials. This is what removes the need for any stored AWS
-      # key — nothing long-lived exists to leak or rotate.
-      id-token: write
-      contents: read
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-          role-session-name: gha-jobtrail-${{ github.run_id }}
-
-      - name: Write kubeconfig
+      - name: Set up SSH
+        env:
+          # Secrets go through the environment rather than being interpolated
+          # into the script body. A `${{ }}` substitution is textual and happens
+          # before the shell parses anything, so a value containing a quote or a
+          # backtick would break out of the string it was meant to sit in.
+          SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+          SSH_HOST_KEY: ${{ secrets.EC2_HOST_KEY }}
         run: |
           set -euo pipefail
-          aws eks update-kubeconfig \
-            --region "$AWS_REGION" \
-            --name "$EKS_CLUSTER"
-          # Fail here, loudly, if the role cannot reach the API — rather than
-          # letting every later kubectl fail one at a time with the same cause.
-          kubectl version --output=yaml >/dev/null
-          kubectl get nodes
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Pin the host key rather than disabling host checking, so a hijacked
+          # DNS record or a swapped instance cannot silently receive the deploy.
+          printf '%s\n' "$SSH_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
-      - name: Apply manifests
+      - name: Ship manifests to the node
+        env:
+          SSH_HOST: ${{ secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.EC2_USER }}
         run: |
           set -euo pipefail
+          # Manifests are applied from the repo, so the cluster's desired state
+          # always matches this commit rather than whatever was last edited by
+          # hand on the box.
+          tar czf - k8s | ssh -i ~/.ssh/deploy_key "${SSH_USER}@${SSH_HOST}" \
+            'rm -rf ~/jobtrail-k8s && mkdir -p ~/jobtrail-k8s && tar xzf - -C ~/jobtrail-k8s'
 
-          kubectl apply -f k8s/00-namespace.yaml
-          # StorageClass is cluster-scoped and must exist before the Postgres
-          # PVC is created, or the claim binds to nothing and sits Pending.
-          kubectl apply -f k8s/05-storage.yaml
-          kubectl apply -f k8s/10-postgres.yaml
-          kubectl apply -f k8s/20-app.yaml
-          kubectl apply -f k8s/30-loadbalancer.yaml
-
-          # The backup CronJob needs AWS credentials that may not be configured.
-          # Apply it only when they are, so an optional extra cannot fail the
-          # deploy of the app itself.
-          if kubectl -n jobtrail get secret jobtrail-secrets \
-               -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' 2>/dev/null | grep -q .; then
-            kubectl apply -f k8s/40-backup.yaml
-          else
-            echo "Skipping backup CronJob: no AWS credentials in jobtrail-secrets."
-          fi
-
-      - name: Roll out
+      - name: Apply and roll out
         env:
           IMAGE: ${{ needs.build.outputs.image }}
+          SSH_HOST: ${{ secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.EC2_USER }}
         run: |
           set -euo pipefail
-
-          # Point the Deployment at the image this run just built, replacing the
-          # placeholder baked into the manifest.
-          kubectl -n jobtrail set image deployment/jobtrail "jobtrail=${IMAGE}"
-
-          # Wait for the pod to actually become ready. Without this the workflow
-          # reports success for a container that is crash-looping. On failure,
-          # roll back rather than leaving the Deployment wedged part-way — the
-          # previous image was known good.
-          if ! kubectl -n jobtrail rollout status deployment/jobtrail --timeout=8m; then
-            echo "::error::Rollout failed — rolling back to the previous revision."
-            kubectl -n jobtrail rollout undo deployment/jobtrail || true
-            kubectl -n jobtrail rollout status deployment/jobtrail --timeout=4m || true
-            exit 1
-          fi
-
-          echo "Deployed ${IMAGE}"
-
-      - name: Summarise
-        if: success()
-        run: |
-          set -euo pipefail
-          LB="$(kubectl -n jobtrail get svc jobtrail-lb \
-                -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)"
-          {
-            echo "### Deployed to EKS"
-            echo ""
-            echo "- Image: \`${{ needs.build.outputs.image }}\`"
-            echo "- Cluster: \`${EKS_CLUSTER}\` (${AWS_REGION})"
-            if [ -n "$LB" ]; then
-              echo "- URL: http://${LB}"
+          # The heredoc is QUOTED, so everything inside is sent verbatim and
+          # expands on the EC2 box. With an unquoted heredoc, $HOME and friends
+          # would expand here on the runner instead — $HOME would become
+          # /home/runner and every path would be wrong. The one value that has to
+          # cross over is the image reference, passed as a remote env var.
+          ssh -i ~/.ssh/deploy_key "${SSH_USER}@${SSH_HOST}" \
+            "IMAGE='${IMAGE}' bash -euo pipefail -s" <<'REMOTE'
+            # k3s writes /etc/rancher/k3s/k3s.yaml as root:root 0600, so a
+            # non-root deploy user cannot read it. DEPLOY.md step 2 copies it to
+            # ~/.kube/config; prefer that, and fall back to sudo if it is
+            # missing so a half-followed setup fails with a clear message rather
+            # than "permission denied" on every command.
+            if [ -r "$HOME/.kube/config" ]; then
+              export KUBECONFIG="$HOME/.kube/config"
+              KUBECTL="kubectl"
+            elif sudo -n true 2>/dev/null; then
+              KUBECTL="sudo k3s kubectl"
             else
-              echo "- Load balancer still provisioning — this takes a few minutes on first deploy."
+              echo "No readable kubeconfig at ~/.kube/config and no passwordless sudo." >&2
+              echo "Run DEPLOY.md step 2 on the instance to create it." >&2
+              exit 1
             fi
-          } >> "$GITHUB_STEP_SUMMARY"
+
+            cd ~/jobtrail-k8s/k8s
+
+            $KUBECTL apply -f 00-namespace.yaml
+            $KUBECTL apply -f 10-postgres.yaml
+            $KUBECTL apply -f 20-app.yaml
+            $KUBECTL apply -f 30-ingress.yaml
+
+            # The backup CronJob needs AWS credentials that may not be set.
+            # Apply it only when they are, so an optional extra cannot fail the
+            # deploy of the app itself.
+            if $KUBECTL -n jobtrail get secret jobtrail-secrets \
+                 -o jsonpath='{.data.AWS_ACCESS_KEY_ID}' 2>/dev/null | grep -q .; then
+              $KUBECTL apply -f 40-backup.yaml
+            else
+              echo "Skipping backup CronJob: no AWS credentials in jobtrail-secrets."
+            fi
+
+            # Point the Deployment at the image this run just built, replacing
+            # the placeholder baked into the manifest.
+            $KUBECTL -n jobtrail set image deployment/jobtrail "jobtrail=$IMAGE"
+
+            # Wait for the pod to actually become ready. Without this the
+            # workflow reports success for a container that is crash-looping. On
+            # failure, roll back rather than leaving the Deployment wedged
+            # part-way — the previous image was known good.
+            if ! $KUBECTL -n jobtrail rollout status deployment/jobtrail --timeout=8m; then
+              echo "Rollout failed; rolling back to the previous revision." >&2
+              $KUBECTL -n jobtrail rollout undo deployment/jobtrail || true
+              $KUBECTL -n jobtrail rollout status deployment/jobtrail --timeout=4m || true
+              exit 1
+            fi
+
+            echo "Deployed $IMAGE"
+            $KUBECTL -n jobtrail get pods -o wide
+          REMOTE
 
       - name: Report failure detail
         if: failure()
+        env:
+          SSH_HOST: ${{ secrets.EC2_HOST }}
+          SSH_USER: ${{ secrets.EC2_USER }}
         run: |
           # Best effort: this step exists to explain a failure, so it must never
           # fail itself and mask the original error.
-          echo "--- pods ---";       kubectl -n jobtrail get pods -o wide || true
-          echo "--- pvc ---";        kubectl -n jobtrail get pvc || true
-          echo "--- events ---";     kubectl -n jobtrail get events --sort-by=.lastTimestamp | tail -30 || true
-          echo "--- app logs ---";   kubectl -n jobtrail logs deployment/jobtrail --tail=100 --all-containers || true
-          echo "--- describe ---";   kubectl -n jobtrail describe deployment/jobtrail || true
+          ssh -i ~/.ssh/deploy_key "${SSH_USER}@${SSH_HOST}" bash -s <<'REMOTE' || true
+            if [ -r "$HOME/.kube/config" ]; then
+              export KUBECONFIG="$HOME/.kube/config"; KUBECTL="kubectl"
+            else
+              KUBECTL="sudo k3s kubectl"
+            fi
+            echo "--- pods ---";     $KUBECTL -n jobtrail get pods -o wide || true
+            echo "--- pvc ---";      $KUBECTL -n jobtrail get pvc || true
+            echo "--- events ---";   $KUBECTL -n jobtrail get events --sort-by=.lastTimestamp | tail -30 || true
+            echo "--- app logs ---"; $KUBECTL -n jobtrail logs deployment/jobtrail --tail=100 --all-containers || true
+          REMOTE
